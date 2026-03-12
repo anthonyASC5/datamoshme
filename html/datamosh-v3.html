@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Datamosh V3</title>
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Special+Elite&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #060606;
+        --panel: #101010;
+        --line: #2a2a2a;
+        --text: #f4f4f4;
+        --muted: #8f8f8f;
+        --accent: #9eff64;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .page {
+        min-height: 100vh;
+        padding: 18px;
+      }
+
+      .shell {
+        max-width: 1400px;
+        margin: 0 auto;
+        border: 1px solid var(--line);
+        background: #0a0a0a;
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .titlebar h1 {
+        margin: 0;
+        font-family: "Special Elite", monospace;
+        font-size: clamp(1rem, 2vw, 1.3rem);
+        letter-spacing: 0.08rem;
+      }
+
+      .mode-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .mode-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 8px 12px 6px;
+        border: 1px solid var(--line);
+        color: var(--text);
+        background: #111;
+        text-decoration: none;
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08rem;
+      }
+
+      .mode-tab.active {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+      }
+
+      .stage,
+      .controls {
+        padding: 16px;
+      }
+
+      .stage {
+        border-right: 1px solid var(--line);
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-size: 0.82rem;
+        font-family: "Special Elite", monospace;
+      }
+
+      .panel-head span {
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      .preview-shell {
+        position: relative;
+        aspect-ratio: 16 / 9;
+        background: #000;
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: #000;
+      }
+
+      .overlay {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      .pill {
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.68);
+        font-size: 0.7rem;
+      }
+
+      .copy {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .copy-box {
+        border: 1px solid var(--line);
+        padding: 12px;
+        background: #0d0d0d;
+      }
+
+      .copy-box strong {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--accent);
+      }
+
+      .copy-box span {
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .button-grid,
+      .input-grid,
+      .slider-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .input-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .button {
+        min-height: 48px;
+        border: 1px solid var(--line);
+        background: #111;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .button.primary {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .button:disabled {
+        opacity: 0.5;
+        cursor: progress;
+      }
+
+      .slider-row {
+        display: grid;
+        grid-template-columns: 130px minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        margin: 0;
+      }
+
+      .meta,
+      .status,
+      .note,
+      pre {
+        color: var(--muted);
+        font-size: 0.76rem;
+      }
+
+      pre {
+        margin: 0;
+        max-height: 200px;
+        overflow: auto;
+        white-space: pre-wrap;
+        border: 1px solid var(--line);
+        padding: 12px;
+        background: #090909;
+      }
+
+      input[type="file"],
+      #video-a-meta-source,
+      #video-b-meta-source {
+        display: none;
+      }
+
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .stage {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          padding: 10px;
+        }
+
+        .copy,
+        .input-grid,
+        .slider-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="shell">
+        <header class="titlebar">
+          <h1>CRT WRLD // DATAMOSH V3</h1>
+          <nav class="mode-tabs" aria-label="Modes"></nav>
+        </header>
+
+        <main class="layout">
+          <section class="stage">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Preview</h2>
+                <span id="timeline-label">Waiting for two clips</span>
+              </div>
+              <div class="panel-body">
+                <div class="preview-shell">
+                  <video id="preview" controls playsinline></video>
+                  <div class="overlay">
+                    <div class="pill">Compression Failure</div>
+                    <div class="pill" id="status-text">Load clip A and clip B.</div>
+                  </div>
+                </div>
+
+                <div class="copy">
+                  <div class="copy-box">
+                    <strong>Mechanic</strong>
+                    <span>V3 freezes the last frame of A, encodes a short freeze-plus-B intro as one long GOP, then appends clean B to force a keyframe reset.</span>
+                  </div>
+                  <div class="copy-box">
+                    <strong>Render</strong>
+                    <span>No fake overlays. No stylization pass. The effect comes from ffmpeg.wasm encoding decisions and segment assembly only.</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <aside class="controls">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Inputs</h2>
+                <span>Two Clips</span>
+              </div>
+              <div class="panel-body">
+                <div class="input-grid">
+                  <button class="button" id="pick-a-button" type="button">Upload Clip A</button>
+                  <button class="button" id="pick-b-button" type="button">Upload Clip B</button>
+                </div>
+                <input id="video-a-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" />
+                <input id="video-b-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" />
+                <video id="video-a-meta-source" muted playsinline preload="metadata"></video>
+                <video id="video-b-meta-source" muted playsinline preload="metadata"></video>
+                <div class="meta" id="video-a-meta">Clip A not loaded.</div>
+                <div class="meta" id="video-b-meta">Clip B not loaded.</div>
+              </div>
+            </section>
+
+            <section class="panel" style="margin-top: 14px;">
+              <div class="panel-head">
+                <h2>Transition</h2>
+                <span>Single Slider</span>
+              </div>
+              <div class="panel-body">
+                <div class="slider-grid">
+                  <div class="slider-row">
+                    <label for="transition-slider">Start</label>
+                    <input id="transition-slider" type="range" min="0" max="10" step="0.1" value="2.0" />
+                    <output id="transition-output">2.0s</output>
+                  </div>
+                </div>
+                <p class="note">Timeline: A normal -> A freeze 0.5s -> moshed B head -> clean B reset.</p>
+              </div>
+            </section>
+
+            <section class="panel" style="margin-top: 14px;">
+              <div class="panel-head">
+                <h2>Render</h2>
+                <span>ffmpeg.wasm</span>
+              </div>
+              <div class="panel-body">
+                <div class="button-grid">
+                  <button class="button primary" id="render-button" type="button">Render Datamosh</button>
+                </div>
+                <pre id="log-output">ffmpeg.wasm log idle.</pre>
+              </div>
+            </section>
+          </aside>
+        </main>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+    <script src="../js/mode-nav.js"></script>
+    <script type="module" src="../js/datamosh-v3.js"></script>
+  </body>
+</html>

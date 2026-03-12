@@ -1,11 +1,12 @@
 (function () {
   const TAB_CONFIG = [
-    { href: "./datamosh.html", label: "Datamosh", pixel: true, aliases: ["./datamosh-live.html", "./datamosh-video.html", "./index.html", "./"] },
+    { href: "./datamosh.html", label: "Datamosh", pixel: true, aliases: ["./index.html", "./"] },
+    { href: "./data1.html", label: "Data1", pixel: true },
     { href: "./crtvideo.html", label: "CRT Video", pixel: false },
-    { href: "./datamosh-v1.html", label: "V1", pixel: true, aliases: ["./datamosh-classic.html"] },
-    { href: "./datamosh-v2.html", label: "V2", pixel: true, aliases: ["./datamosh-two-clip.html"] },
-    { href: "./datamosh-v3.html", label: "V3", pixel: true, aliases: ["./datamosh-ffmpeg.html"] },
-    { href: "./blob-transition.html", label: "Blob Transition", pixel: true, aliases: ["./blobtransition.html"] },
+    { href: "./datamosh-v1.html", label: "V1", pixel: true },
+    { href: "./datamosh-v2.html", label: "V2", pixel: true },
+    { href: "./datamosh-v3.html", label: "V3", pixel: true },
+    { href: "./blob-transition.html", label: "Blob Transition", pixel: true },
     { href: "./crtimage.html", label: "CRT Image", pixel: false },
   ];
 
