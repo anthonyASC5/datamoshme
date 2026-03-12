@@ -917,6 +917,17 @@
                   </div>
                 </div>
 
+                <div class="slider-grid" style="margin-top: 12px;">
+                  <div class="slider-row">
+                    <label for="volume-slider">Video Vol</label>
+                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="100" />
+                    <output id="volume-output">N/A</output>
+                  </div>
+                </div>
+                <div class="button-grid" style="margin-top: 12px;">
+                  <button class="button" id="volume-button" type="button" disabled>No Audio</button>
+                </div>
+
                 <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
                 <video id="video-source" playsinline loop muted crossorigin="anonymous"></video>
 

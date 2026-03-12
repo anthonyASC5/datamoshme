@@ -1,4 +1,5 @@
 import { createLayerEditor } from "./crtvideo-layer-editor.js";
+import { createVideoVolumeController } from "./video-volume.js";
 
 const LOOP_DURATION = 7;
 const MAX_EXPORT_WIDTH = 1280;
@@ -59,6 +60,9 @@ const statusText = document.getElementById("status-text");
 const fileNameText = document.getElementById("file-name");
 const qualitySelect = document.getElementById("quality-select");
 const fpsSelect = document.getElementById("fps-select");
+const volumeSlider = document.getElementById("volume-slider");
+const volumeOutput = document.getElementById("volume-output");
+const volumeButton = document.getElementById("volume-button");
 const qualityMeta = document.getElementById("quality-meta");
 const layersList = document.getElementById("layers-list");
 const layersEmpty = document.getElementById("layers-empty");
@@ -108,6 +112,12 @@ let reversePlaybackStamp = 0;
 let currentQuality = qualitySelect?.value || "balanced";
 let targetFps = Number(fpsSelect?.value || 30);
 let lastRenderAt = 0;
+const volumeController = createVideoVolumeController({
+  media: sourceVideo,
+  slider: volumeSlider,
+  output: volumeOutput,
+  toggleButton: volumeButton,
+});
 
 function cloneChunk(chunk) {
   const data = new Uint8Array(chunk.byteLength);
@@ -1418,6 +1428,7 @@ async function loadVideo(file) {
 
   stopReversePlayback();
   revokeActiveUrl();
+  volumeController.setAvailable(false);
   activeObjectUrl = URL.createObjectURL(file);
   sourceVideo.src = activeObjectUrl;
   sourceVideo.load();
@@ -1450,12 +1461,17 @@ async function loadVideo(file) {
   setStatus("Video loaded. Base layer created.");
   ensureLoop();
 
+  let autoplayBlocked = false;
   try {
     await sourceVideo.play();
   } catch {
-    setStatus("Video loaded. Press Play / Pause if autoplay is blocked.");
+    autoplayBlocked = true;
   }
 
+  volumeController.setAvailable(true);
+  if (autoplayBlocked) {
+    setStatus("Video loaded. Press Play / Pause if autoplay is blocked.");
+  }
 }
 
 async function togglePlayback() {
@@ -1757,6 +1773,7 @@ layerEditor = createLayerEditor({
 });
 
 window.addEventListener("beforeunload", () => {
+  volumeController.setAvailable(false);
   getLayers().forEach((layer) => destroyDatamoshRuntime(layer));
   stopReversePlayback();
   stopLoop();

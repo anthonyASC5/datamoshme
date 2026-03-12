@@ -230,6 +230,11 @@
         background: var(--surface-strong);
       }
 
+      .button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
       .button.active,
       .button.primary {
         border-color: var(--accent);
@@ -391,7 +396,7 @@
                 </div>
                 <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" />
                 <div class="meta" id="source-meta">NO SOURCE SELECTED.</div>
-                <p class="note">THIS MODE FOLLOWS THE SIMPLE WEBCODECS FLOW: SOURCE FRAME -> ENCODER -> CHUNK -> DECODER -> CANVAS OUTPUT. YOU CAN USE WEBCAM OR AN UPLOADED VIDEO.</p>
+                <p class="note">THIS MODE FOLLOWS THE SIMPLE WEBCODECS FLOW: SOURCE FRAME -> ENCODER -> CHUNK -> DECODER -> CANVAS OUTPUT. UPLOADED VIDEOS CAN BE MONITORED WITH VIDEO VOLUME. CAMERA INPUT STAYS SILENT.</p>
               </div>
             </section>
             <section class="panel">
@@ -418,6 +423,14 @@
                     <input id="speed-slider" type="range" min="1" max="12" step="1" value="2" />
                     <output id="speed-output">2</output>
                   </div>
+                  <div class="slider-row">
+                    <label for="volume-slider">VIDEO VOL</label>
+                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="100" />
+                    <output id="volume-output">N/A</output>
+                  </div>
+                </div>
+                <div class="button-grid" style="margin-top: 12px;">
+                  <button class="button" id="volume-button" type="button" disabled>NO AUDIO</button>
                 </div>
               </div>
             </section>

@@ -1,3 +1,5 @@
+import { createVideoVolumeController } from "./video-volume.js";
+
 const stageCanvas = document.getElementById("stage-canvas");
 const sourceVideo = document.getElementById("source-video");
 const startButton = document.getElementById("camera-button");
@@ -11,6 +13,9 @@ const resetButton = document.getElementById("reset-button");
 const fileInput = document.getElementById("file-input");
 const speedSlider = document.getElementById("speed-slider");
 const speedOutput = document.getElementById("speed-output");
+const volumeSlider = document.getElementById("volume-slider");
+const volumeOutput = document.getElementById("volume-output");
+const volumeButton = document.getElementById("volume-button");
 const statusText = document.getElementById("status-text");
 const timelineLabel = document.getElementById("timeline-label");
 const sourceMeta = document.getElementById("source-meta");
@@ -30,6 +35,12 @@ let activeSourceMode = "";
 let recorder = null;
 let recordedChunks = [];
 let recordingStream = null;
+const volumeController = createVideoVolumeController({
+  media: sourceVideo,
+  slider: volumeSlider,
+  output: volumeOutput,
+  toggleButton: volumeButton,
+});
 
 function getRecordingMimeType() {
   const candidates = [
@@ -190,6 +201,8 @@ async function destroyCodecs() {
 }
 
 function stopSource() {
+  volumeController.setAvailable(false);
+
   if (webcamStream) {
     webcamStream.getTracks().forEach((track) => track.stop());
     webcamStream = null;
@@ -276,6 +289,7 @@ async function startWebcam() {
   sourceVideo.srcObject = webcamStream;
   sourceVideo.muted = true;
   sourceVideo.playsInline = true;
+  volumeController.setAvailable(false);
 
   await new Promise((resolve) => {
     sourceVideo.onloadeddata = () => resolve();
@@ -299,11 +313,19 @@ async function startUploadedVideo(file) {
     sourceVideo.onloadeddata = () => resolve();
   });
 
-  await sourceVideo.play();
+  let autoplayBlocked = false;
+  try {
+    await sourceVideo.play();
+  } catch {
+    autoplayBlocked = true;
+  }
+
+  volumeController.setAvailable(true);
   activeSourceMode = "file";
   setSourceButtonState("file");
   sourceMeta.textContent = `${file.name} • ${sourceVideo.duration.toFixed(2)}s • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight}`;
   appendLog(`Video ready: ${sourceMeta.textContent}`);
+  return { autoplayBlocked };
 }
 
 async function setupWebCodecs() {
@@ -358,9 +380,9 @@ async function startDatamoshUpload(file) {
   clearStage();
   setStatus("Loading uploaded video...");
   stopSource();
-  await startUploadedVideo(file);
+  const { autoplayBlocked } = await startUploadedVideo(file);
   await setupWebCodecs();
-  setStatus("Datamosh running.");
+  setStatus(autoplayBlocked ? "Video loaded. Press Play if autoplay is blocked." : "Datamosh running.");
   drawLoop();
 }
 
