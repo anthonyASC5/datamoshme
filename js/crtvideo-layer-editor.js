@@ -35,6 +35,14 @@ function defaultLayerParams(type) {
     return { grit: 0, color: 1, invertBlack: 0.5, hue: 0.62, reduceWhite: 0.46, reduceBlack: 0.89 };
   }
 
+  if (type === "infrared") {
+    return { colorOffset: 0 };
+  }
+
+  if (type === "detect") {
+    return { threshold: 0.18, decay: 0.52, trigger: 0.18 };
+  }
+
   if (type === "cluster") {
     return {
       grit: 1.12,
@@ -103,7 +111,7 @@ function defaultLayerParams(type) {
 }
 
 function defaultBlendForType(type) {
-  if (type === "crt" || type === "cluster" || type === "clusterOnly" || type === "clusterTrack" || type === "monitor") {
+  if (type === "crt" || type === "cluster" || type === "clusterOnly" || type === "clusterTrack" || type === "monitor" || type === "detect") {
     return "screen";
   }
   if (type === "datamosh") {
@@ -124,6 +132,8 @@ function layerLabelForType(type) {
       monitor: "CRT Monitor",
       black: "Black Data",
       blu: "BLU",
+      infrared: "Infrared Camera",
+      detect: "Detect",
       cluster: "Cluster Edge Tracker",
       clusterOnly: "Cluster Only",
       clusterTrack: "Full Cluster Track",
@@ -224,6 +234,18 @@ export function createLayerEditor({
       controls += createInlineSlider("Speed", "speed", layer.params.speed, 1, 10, 1);
       controls += createInlineSlider("Clean Rate", "keyframeEvery", layer.params.keyframeEvery, 1, 24, 1);
       controls += createInlineToggle("Mirror", "mirror", Boolean(layer.params.mirror));
+      return controls;
+    }
+
+    if (layer.type === "infrared") {
+      return createInlineSlider("Color Offset", "colorOffset", layer.params.colorOffset, 0, 1, 0.01);
+    }
+
+    if (layer.type === "detect") {
+      let controls = "";
+      controls += createInlineSlider("Threshold", "threshold", layer.params.threshold, 0.02, 0.5, 0.01);
+      controls += createInlineSlider("Decay", "decay", layer.params.decay, 0, 1, 0.01);
+      controls += createInlineSlider("Trigger", "trigger", layer.params.trigger, 0, 1, 0.01);
       return controls;
     }
 

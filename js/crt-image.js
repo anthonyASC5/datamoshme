@@ -3,8 +3,6 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
-import { trackEvent } from "./analytics.js";
-
 const LOOP_DURATION = 7;
 const MAX_TEXTURE_SIZE = 2048;
 
@@ -323,9 +321,6 @@ function applyTexture(texture, label = "Custom texture loaded", objectUrl = null
 
   fileNameText.textContent = label;
   setStatus("Hologram texture updated.");
-  trackEvent("image_upload", {
-    file_name: label,
-  });
 }
 
 function fitImageDimensions(width, height) {
@@ -405,11 +400,6 @@ async function exportLoop() {
   isRecording = true;
   exportButton.disabled = true;
   setStatus("Recording 7 second loop...");
-  trackEvent("image_export_start", {
-    background: activeBackground,
-    black_data: blackDataToggle.checked,
-  });
-
   recorder.ondataavailable = (event) => {
     if (event.data && event.data.size > 0) {
       chunks.push(event.data);
@@ -435,10 +425,6 @@ async function exportLoop() {
     isRecording = false;
     exportButton.disabled = false;
     setStatus("Export complete. Downloaded `crt-image-loop.webm`.");
-    trackEvent("image_export_complete", {
-      background: activeBackground,
-      black_data: blackDataToggle.checked,
-    });
   };
 
   recorder.start();
@@ -527,16 +513,10 @@ exportButton.addEventListener("click", () => {
 
 backgroundSelect.addEventListener("change", () => {
   applyBackgroundPreset(backgroundSelect.value, clock.getElapsedTime());
-  trackEvent("image_background_change", {
-    background: backgroundSelect.value,
-  });
 });
 
 blackDataToggle.addEventListener("change", () => {
   applyControlValues();
-  trackEvent("image_black_data_toggle", {
-    enabled: blackDataToggle.checked,
-  });
 });
 
 window.addEventListener("resize", onResize);

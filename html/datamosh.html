@@ -1,114 +1,131 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Datamosh</title>
+    <title>DATAMOSH</title>
     <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Press+Start+2P&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --line: rgba(255, 149, 41, 0.58);
-        --line-soft: rgba(255, 149, 41, 0.18);
-        --text: #fff8ef;
-        --muted: #d6b89b;
+        --bg: #090909;
+        --surface: #111111;
+        --surface-strong: #161616;
+        --surface-muted: #0d0d0d;
+        --line: rgba(255, 138, 30, 0.4);
+        --line-soft: rgba(255, 138, 30, 0.14);
+        --text: #f3eee8;
+        --muted: #a89d90;
         --accent: #ff8a1e;
-        --accent-soft: rgba(255, 138, 30, 0.14);
+        --accent-text: #0d0d0d;
       }
+
       * {
         box-sizing: border-box;
       }
+
       html,
       body {
         margin: 0;
         min-height: 100%;
-        background:
-          radial-gradient(circle at top, rgba(255, 149, 41, 0.16), transparent 28%),
-          radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.08), transparent 22%),
-          linear-gradient(180deg, #060608, #020203 58%, #000 100%);
+        background: var(--bg);
         color: var(--text);
-        font-family: "Orbitron", sans-serif;
+        font-family: "IBM Plex Mono", monospace;
+        text-transform: uppercase;
       }
+
+      body {
+        letter-spacing: 0.04em;
+      }
+
       .page {
         min-height: 100vh;
         padding: 18px;
       }
+
       .shell {
         max-width: 1480px;
         margin: 0 auto;
-        border: 2px solid var(--line);
-        background: linear-gradient(180deg, rgba(12, 11, 8, 0.96), rgba(4, 4, 3, 0.98));
-        box-shadow:
-          0 0 42px rgba(255, 138, 30, 0.07),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--line);
+        background: var(--surface);
       }
+
       .titlebar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
         padding: 14px 16px;
-        border-bottom: 2px solid var(--line);
-        background: var(--accent-soft);
+        border-bottom: 1px solid var(--line);
+        background: var(--surface-strong);
       }
+
       .titlebar h1 {
         margin: 0;
-        font-family: "Press Start 2P", cursive;
-        font-size: clamp(0.78rem, 1.8vw, 1.1rem);
-        letter-spacing: 0.08rem;
-        line-height: 1.5;
+        font-size: clamp(0.86rem, 1.8vw, 1rem);
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        line-height: 1.4;
       }
+
       .mode-tabs {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
-      } 
-      
+      }
+
       .mode-tab {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         min-height: 34px;
-        padding: 8px 12px 6px;
+        padding: 8px 12px;
         border: 1px solid var(--line);
         color: var(--text);
         text-decoration: none;
-        font-size: 0.56rem;
-        letter-spacing: 0.08rem;
-        text-transform: uppercase;
-        background: rgba(255, 255, 255, 0.03);
+        font-size: 0.66rem;
+        letter-spacing: 0.12em;
+        background: transparent;
       }
-      .mode-tab.pixel {
-        font-family: "Press Start 2P", cursive;
+
+      body .mode-tab.pixel {
+        font-family: inherit;
       }
+
       .mode-tab.active {
-        background: linear-gradient(180deg, rgba(255, 149, 41, 0.2), rgba(255, 255, 255, 0.06));
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-text);
       }
+
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
       }
+
       .stage,
       .controls {
         padding: 16px;
       }
+
       .stage {
-        border-right: 2px solid var(--line);
+        border-right: 1px solid var(--line);
       }
+
       .panel {
         border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.018);
+        background: var(--surface);
       }
+
       .panel + .panel {
         margin-top: 14px;
       }
+
       .panel-head {
         display: flex;
         justify-content: space-between;
@@ -116,42 +133,48 @@
         gap: 12px;
         padding: 12px 14px;
         border-bottom: 1px solid var(--line);
-        background: var(--accent-soft);
+        background: var(--surface-strong);
       }
+
       .panel-head h2 {
         margin: 0;
-        font-size: 0.5rem;
-        font-family: "Press Start 2P", cursive;
-        letter-spacing: 0.08rem;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.16em;
       }
+
       .panel-head span {
         color: var(--muted);
-        font-size: 0.64rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08rem;
+        font-size: 0.68rem;
+        letter-spacing: 0.12em;
       }
+
       .panel-body {
         padding: 14px;
       }
+
       .stage-shell {
         position: relative;
-        border: 2px solid var(--line);
+        border: 1px solid var(--line);
         aspect-ratio: 16 / 9;
-        background: #000;
+        background: #000000;
         overflow: hidden;
       }
+
       canvas,
       video {
         width: 100%;
         height: 100%;
         display: block;
-        background: #000;
+        background: #000000;
         image-rendering: pixelated;
       }
+
       #source-video,
       #file-input {
         display: none;
       }
+
       .overlay {
         position: absolute;
         left: 12px;
@@ -162,87 +185,114 @@
         gap: 12px;
         pointer-events: none;
       }
+
       .pill {
-        padding: 8px 12px 7px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(0, 0, 0, 0.48);
-        font-size: 0.62rem;
-        letter-spacing: 0.11rem;
-        text-transform: uppercase;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        background: rgba(0, 0, 0, 0.82);
+        font-size: 0.68rem;
+        letter-spacing: 0.12em;
       }
+
       .pill.pixel {
-        font-family: "Press Start 2P", cursive;
         color: var(--accent);
+        font-family: inherit;
       }
+
       .button-grid,
       .slider-grid {
         display: grid;
         gap: 12px;
       }
+
       .button-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 10px;
       }
+
       .button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 52px;
+        min-height: 48px;
         padding: 0 14px;
         border: 1px solid var(--line);
-        background: linear-gradient(180deg, rgba(255, 149, 41, 0.22), rgba(84, 41, 12, 0.34));
+        background: transparent;
         color: var(--text);
         font: inherit;
         font-size: 0.74rem;
-        letter-spacing: 0.12rem;
-        text-transform: uppercase;
+        letter-spacing: 0.12em;
         cursor: pointer;
       }
+
+      .button:hover {
+        background: var(--surface-strong);
+      }
+
       .button.active,
       .button.primary {
         border-color: var(--accent);
-        color: #ffffff;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+        background: var(--accent);
+        color: var(--accent-text);
       }
+
       .slider-row {
         display: grid;
         grid-template-columns: 108px 1fr 54px;
         gap: 10px;
         align-items: center;
       }
+
       .slider-row label {
         color: var(--muted);
-        font-size: 0.58rem;
-        font-family: "Press Start 2P", cursive;
-        text-transform: uppercase;
-        letter-spacing: 0.08rem;
-        line-height: 1.6;
+        font-size: 0.68rem;
+        letter-spacing: 0.12em;
+        line-height: 1.5;
       }
+
       input[type="range"] {
         width: 100%;
         margin: 0;
         appearance: none;
         background: transparent;
       }
+
       input[type="range"]::-webkit-slider-runnable-track {
-        height: 4px;
-        background: linear-gradient(90deg, rgba(255, 149, 41, 0.28), rgba(255, 255, 255, 0.18));
+        height: 2px;
+        background: var(--line);
       }
+
       input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
-        width: 14px;
-        height: 14px;
-        border: 1px solid #1f1407;
-        border-radius: 0;
+        width: 12px;
+        height: 12px;
+        border: 1px solid var(--accent);
+        border-radius: 50%;
         background: var(--accent);
         margin-top: -5px;
       }
+
+      input[type="range"]::-moz-range-track {
+        height: 2px;
+        background: var(--line);
+        border: 0;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        border: 1px solid var(--accent);
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
       .slider-row output {
-        color: #ffffff;
+        color: var(--text);
         font-size: 0.78rem;
         text-align: right;
       }
+
       .meta,
       .note,
       pre {
@@ -250,6 +300,7 @@
         font-size: 0.78rem;
         line-height: 1.55;
       }
+
       pre {
         margin: 0;
         max-height: 250px;
@@ -257,21 +308,43 @@
         white-space: pre-wrap;
         border: 1px solid var(--line);
         padding: 12px;
-        background: rgba(255, 255, 255, 0.02);
+        background: var(--surface-muted);
       }
+
+      body .site-home-logo {
+        border: 1px solid var(--line);
+        background: var(--surface-strong);
+        color: var(--text);
+        box-shadow: none;
+      }
+
+      body .site-home-logo.is-home {
+        border-color: var(--accent);
+        box-shadow: none;
+      }
+
+      body .site-home-logo span {
+        font-family: "IBM Plex Mono", monospace !important;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+      }
+
       @media (max-width: 1080px) {
         .layout {
           grid-template-columns: 1fr;
         }
+
         .stage {
           border-right: 0;
-          border-bottom: 2px solid var(--line);
+          border-bottom: 1px solid var(--line);
         }
       }
+
       @media (max-width: 760px) {
         .page {
           padding: 10px;
         }
+
         .button-row,
         .slider-row {
           grid-template-columns: 1fr;
@@ -290,16 +363,16 @@
           <section class="stage">
             <section class="panel">
               <div class="panel-head">
-                <h2>Live Stage</h2>
-                <span id="timeline-label">Idle</span>
+                <h2>LIVE STAGE</h2>
+                <span id="timeline-label">IDLE</span>
               </div>
               <div class="panel-body">
                 <div class="stage-shell">
                   <canvas id="stage-canvas" width="1280" height="720"></canvas>
                   <video id="source-video" playsinline muted></video>
                   <div class="overlay">
-                    <div class="pill pixel">WebCodecs VP8</div>
-                    <div class="pill" id="status-text">Choose webcam or import a video.</div>
+                    <div class="pill pixel">WEBCODECS VP8</div>
+                    <div class="pill" id="status-text">CHOOSE WEBCAM OR IMPORT A VIDEO.</div>
                   </div>
                 </div>
               </div>
@@ -308,40 +381,40 @@
           <aside class="controls">
             <section class="panel">
               <div class="panel-head">
-                <h2>Source</h2>
-                <span>Webcam</span>
+                <h2>SOURCE</h2>
+                <span>WEBCAM</span>
               </div>
               <div class="panel-body">
                 <div class="button-row">
-                  <button class="button primary" id="camera-button" type="button">Use Camera</button>
-                  <button class="button" id="import-button" type="button">Upload Video</button>
+                  <button class="button primary" id="camera-button" type="button">USE CAMERA</button>
+                  <button class="button" id="import-button" type="button">UPLOAD VIDEO</button>
                 </div>
                 <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" />
-                <div class="meta" id="source-meta">No source selected.</div>
-                <p class="note">This mode follows the simple WebCodecs flow: source frame -> encoder -> chunk -> decoder -> canvas output. You can use webcam or an uploaded video.</p>
+                <div class="meta" id="source-meta">NO SOURCE SELECTED.</div>
+                <p class="note">THIS MODE FOLLOWS THE SIMPLE WEBCODECS FLOW: SOURCE FRAME -> ENCODER -> CHUNK -> DECODER -> CANVAS OUTPUT. YOU CAN USE WEBCAM OR AN UPLOADED VIDEO.</p>
               </div>
             </section>
             <section class="panel">
               <div class="panel-head">
-                <h2>Controls</h2>
-                <span>Transport + Speed</span>
+                <h2>CONTROLS</h2>
+                <span>TRANSPORT + SPEED</span>
               </div>
               <div class="panel-body">
                 <div class="button-row">
-                  <button class="button" id="play-button" type="button">Play</button>
-                  <button class="button" id="pause-button" type="button">Pause</button>
-                  <button class="button" id="stop-button" type="button">Stop</button>
-                  <button class="button" id="restart-button" type="button">Restart</button>
+                  <button class="button" id="play-button" type="button">PLAY</button>
+                  <button class="button" id="pause-button" type="button">PAUSE</button>
+                  <button class="button" id="stop-button" type="button">STOP</button>
+                  <button class="button" id="restart-button" type="button">RESTART</button>
                 </div>
                 <div class="button-grid" style="margin-top: 12px;">
-                  <button class="button" id="record-button" type="button">Record</button>
+                  <button class="button" id="record-button" type="button">RECORD</button>
                 </div>
                 <div class="button-grid" style="margin-top: 12px;">
-                  <button class="button primary" id="reset-button" type="button">Pulisci</button>
+                  <button class="button primary" id="reset-button" type="button">RESET KEYFRAME</button>
                 </div>
                 <div class="slider-grid" style="margin-top: 12px;">
                   <div class="slider-row">
-                    <label for="speed-slider">Speed</label>
+                    <label for="speed-slider">SPEED</label>
                     <input id="speed-slider" type="range" min="1" max="12" step="1" value="2" />
                     <output id="speed-output">2</output>
                   </div>
@@ -350,11 +423,11 @@
             </section>
             <section class="panel">
               <div class="panel-head">
-                <h2>Log</h2>
-                <span>Runtime</span>
+                <h2>LOG</h2>
+                <span>RUNTIME</span>
               </div>
               <div class="panel-body">
-                <pre id="log-output">Datamosh idle.</pre>
+                <pre id="log-output">DATAMOSH IDLE.</pre>
               </div>
             </section>
           </aside>

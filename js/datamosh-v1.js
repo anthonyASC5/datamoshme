@@ -152,18 +152,18 @@ function drawFrameFit(source, targetCtx) {
 function drawIdleCard() {
   clearMainCanvas();
   ctx.save();
-  ctx.fillStyle = "#050505";
+  ctx.fillStyle = "#f7f3ec";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "rgba(148,255,102,0.22)";
+  ctx.strokeStyle = "rgba(244,122,33,0.58)";
   ctx.lineWidth = 2;
   ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#322a25";
   ctx.textAlign = "center";
-  ctx.font = '20px "Press Start 2P", monospace';
-  ctx.fillText("DATAMOSH", canvas.width / 2, canvas.height / 2 - 18);
-  ctx.fillStyle = "#98b09d";
-  ctx.font = '16px "Orbitron", sans-serif';
-  ctx.fillText("Load clip A and clip B to build a block-corrupted cut.", canvas.width / 2, canvas.height / 2 + 24);
+  ctx.font = '22px "IBM Plex Mono", monospace';
+  ctx.fillText("DATAMOSH V1", canvas.width / 2, canvas.height / 2 - 18);
+  ctx.fillStyle = "#d96410";
+  ctx.font = '16px "IBM Plex Mono", monospace';
+  ctx.fillText("LOAD CLIP A AND CLIP B TO BUILD A BLOCK-CORRUPTED CUT.", canvas.width / 2, canvas.height / 2 + 24);
   ctx.restore();
 }
 

@@ -1,5 +1,3 @@
-import { trackEvent } from "./analytics.js";
-
 const PREVIEW_FPS = 30;
 const MAX_RENDER_WIDTH = 1280;
 const SAMPLE_INTERVAL = 1 / PREVIEW_FPS;
@@ -749,11 +747,6 @@ async function startMosh() {
 
   setStatus("Datamosher V2 ready.");
   timelineLabel.textContent = `${state.processedFrames.length} frames rendered`;
-  trackEvent("datamosher_v2_transition_complete", {
-    frames: state.processedFrames.length,
-    dupedFrames: state.lastDupedFrames,
-    averageMotion: Number(state.lastAverageMotion.toFixed(2)),
-  });
 }
 
 function pickMimeType() {

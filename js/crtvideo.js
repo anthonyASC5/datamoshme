@@ -1,8 +1,33 @@
-import { trackEvent } from "./analytics.js";
 import { createLayerEditor } from "./crtvideo-layer-editor.js";
 
 const LOOP_DURATION = 7;
 const MAX_EXPORT_WIDTH = 1280;
+const QUALITY_PRESETS = {
+  performance: {
+    label: "Performance",
+    scale: 0.55,
+    clusterStepScale: 1.45,
+    clusterLimitScale: 0.55,
+    edgeBlockScale: 1.55,
+    detectBlock: 6,
+  },
+  balanced: {
+    label: "Balanced",
+    scale: 0.72,
+    clusterStepScale: 1.18,
+    clusterLimitScale: 0.8,
+    edgeBlockScale: 1.2,
+    detectBlock: 4,
+  },
+  quality: {
+    label: "Quality",
+    scale: 1,
+    clusterStepScale: 1,
+    clusterLimitScale: 1,
+    edgeBlockScale: 1,
+    detectBlock: 3,
+  },
+};
 const BLEND_MODE_MAP = {
   normal: "source-over",
   darken: "darken",
@@ -32,6 +57,9 @@ const headerReverseButton = document.getElementById("header-reverse-button");
 const headerResetButton = document.getElementById("header-reset-button");
 const statusText = document.getElementById("status-text");
 const fileNameText = document.getElementById("file-name");
+const qualitySelect = document.getElementById("quality-select");
+const fpsSelect = document.getElementById("fps-select");
+const qualityMeta = document.getElementById("quality-meta");
 const layersList = document.getElementById("layers-list");
 const layersEmpty = document.getElementById("layers-empty");
 const layerSelectionLabel = document.getElementById("layer-selection-label");
@@ -61,13 +89,13 @@ const addLayerButtons = Array.from(document.querySelectorAll("[data-add-layer]")
 const collapsiblePanelHeads = Array.from(document.querySelectorAll(".panel-head[data-collapsible]"));
 
 const sourceCanvas = document.createElement("canvas");
-const sourceCtx = sourceCanvas.getContext("2d", { alpha: false });
+const sourceCtx = sourceCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
 const compositeCanvas = document.createElement("canvas");
 const compositeCtx = compositeCanvas.getContext("2d", { alpha: false });
 const splitCanvas = document.createElement("canvas");
 const splitCtx = splitCanvas.getContext("2d", { alpha: false });
 const scratchCanvas = document.createElement("canvas");
-const scratchCtx = scratchCanvas.getContext("2d", { alpha: false });
+const scratchCtx = scratchCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
 
 let activeObjectUrl = null;
 let isRecording = false;
@@ -77,6 +105,9 @@ let previousSourceImageData = null;
 let layerEditor = null;
 let reversePlaybackHandle = 0;
 let reversePlaybackStamp = 0;
+let currentQuality = qualitySelect?.value || "balanced";
+let targetFps = Number(fpsSelect?.value || 30);
+let lastRenderAt = 0;
 
 function cloneChunk(chunk) {
   const data = new Uint8Array(chunk.byteLength);
@@ -97,8 +128,80 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function wrapUnit(value) {
+  return ((value % 1) + 1) % 1;
+}
+
 function setOutput(output, value, digits = 2) {
   output.value = typeof value === "number" ? value.toFixed(digits) : value;
+}
+
+function getQualityPreset() {
+  return QUALITY_PRESETS[currentQuality] || QUALITY_PRESETS.balanced;
+}
+
+function setContextSampling(targetCtx) {
+  if (!targetCtx) {
+    return;
+  }
+  targetCtx.imageSmoothingEnabled = false;
+}
+
+function updateQualityMeta() {
+  if (!qualityMeta) {
+    return;
+  }
+  const preset = getQualityPreset();
+  qualityMeta.textContent = `${preset.label} quality renders at ${Math.round(preset.scale * 100)}% resolution and caps preview at ${targetFps} FPS.`;
+}
+
+function applyPerformanceSettings() {
+  currentQuality = qualitySelect?.value || "balanced";
+  targetFps = Math.max(1, Number(fpsSelect?.value || 30));
+  updateQualityMeta();
+  lastRenderAt = 0;
+
+  resetFrameAnalysisState();
+  if (sourceVideo.videoWidth && sourceVideo.videoHeight) {
+    resizeBuffers(sourceVideo.videoWidth, sourceVideo.videoHeight);
+  }
+}
+
+function resetFrameAnalysisState() {
+  getLayers().forEach((layer) => {
+    const detectState = layer.runtime?.detectState;
+    if (detectState) {
+      detectState.history.length = 0;
+      detectState.activeAverage = 0;
+    }
+  });
+  previousSourceImageData = null;
+}
+
+function editorPassIsNeutral(params) {
+  if (!params) {
+    return true;
+  }
+  return (
+    Math.abs(params.brightness) < 0.001 &&
+    Math.abs(params.contrast - 1) < 0.001 &&
+    Math.abs(params.highlights) < 0.001 &&
+    Math.abs(params.shadows) < 0.001 &&
+    Math.abs(params.sharpness) < 0.001 &&
+    Math.abs(params.echoFrames) < 0.001 &&
+    Math.abs(params.edgeGlow) < 0.001 &&
+    Math.abs(params.crtGlow) < 0.001
+  );
+}
+
+function layerNeedsSourceImageData(layer) {
+  if (!layer?.visible || layer.opacity <= 0) {
+    return false;
+  }
+  if (layer.type === "crt") {
+    return (layer.params.edgeGlow || 0) > 0;
+  }
+  return ["cluster", "clusterOnly", "clusterTrack", "monitor", "black", "blu", "infrared", "detect"].includes(layer.type);
 }
 
 function markControlTouched(control, active = true) {
@@ -125,6 +228,7 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
   const ghostCtx = ghostCanvas.getContext("2d", { alpha: true });
   const auxCanvas = document.createElement("canvas");
   const auxCtx = auxCanvas.getContext("2d", { alpha: true });
+  [layerCtx, ghostCtx, auxCtx].forEach(setContextSampling);
   layerCanvas.width = ghostCanvas.width = auxCanvas.width = width;
   layerCanvas.height = ghostCanvas.height = auxCanvas.height = height;
   return {
@@ -135,6 +239,10 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
     auxCanvas,
     auxCtx,
     mosh: null,
+    detectState: {
+      history: [],
+      activeAverage: 0,
+    },
   };
 }
 
@@ -294,14 +402,49 @@ function hueToRgb(hue) {
   }
 }
 
+function hslToRgb(hue, saturation, lightness) {
+  const h = wrapUnit(hue);
+  const s = clamp(saturation, 0, 1);
+  const l = clamp(lightness, 0, 1);
+
+  if (s === 0) {
+    const gray = Math.round(l * 255);
+    return { r: gray, g: gray, b: gray };
+  }
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hueToChannel = (t) => {
+    const wrapped = wrapUnit(t);
+    if (wrapped < 1 / 6) {
+      return p + (q - p) * 6 * wrapped;
+    }
+    if (wrapped < 1 / 2) {
+      return q;
+    }
+    if (wrapped < 2 / 3) {
+      return p + (q - p) * (2 / 3 - wrapped) * 6;
+    }
+    return p;
+  };
+
+  return {
+    r: Math.round(hueToChannel(h + 1 / 3) * 255),
+    g: Math.round(hueToChannel(h) * 255),
+    b: Math.round(hueToChannel(h - 1 / 3) * 255),
+  };
+}
+
 function resizeBuffers(videoWidth = 1280, videoHeight = 720) {
-  const scale = Math.min(MAX_EXPORT_WIDTH / videoWidth, 1);
+  const preset = getQualityPreset();
+  const scale = Math.min(Math.min(MAX_EXPORT_WIDTH / videoWidth, 1) * preset.scale, 1);
   const width = Math.max(320, Math.round(videoWidth * scale));
   const height = Math.max(180, Math.round(videoHeight * scale));
   [canvas, sourceCanvas, compositeCanvas, splitCanvas, scratchCanvas].forEach((node) => {
     node.width = width;
     node.height = height;
   });
+  [ctx, sourceCtx, compositeCtx, splitCtx, scratchCtx].forEach(setContextSampling);
   if (layerEditor) {
     layerEditor.resizeRuntimes(width, height);
   }
@@ -398,6 +541,35 @@ function buildPresetImage(imageData, elapsed, layer) {
   return new ImageData(out, width, height);
 }
 
+function buildInfraredImage(imageData, elapsed, layer) {
+  const { width, height, data } = imageData;
+  const out = new Uint8ClampedArray(data.length);
+  const colorOffset = wrapUnit(layer.params.colorOffset || 0);
+  const sweep = elapsed * 0.8;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      const red = data[index] / 255;
+      const green = data[index + 1] / 255;
+      const blue = data[index + 2] / 255;
+      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+      const hue = wrapUnit(red + colorOffset + Math.sin(y * 0.03 + sweep) * 0.012);
+      const lightness = clamp(0.1 + luminance * 0.44 + red * 0.24, 0.08, 0.78);
+      const saturation = clamp(0.82 + red * 0.18, 0, 1);
+      const mapped = hslToRgb(hue, saturation, lightness);
+      const glowBoost = 1 + red * 0.18 + Math.sin((x + y) * 0.015 + sweep * 4) * 0.04;
+
+      out[index] = clamp(Math.round(mapped.r * glowBoost), 0, 255);
+      out[index + 1] = clamp(Math.round(mapped.g * glowBoost), 0, 255);
+      out[index + 2] = clamp(Math.round(mapped.b * glowBoost), 0, 255);
+      out[index + 3] = 255;
+    }
+  }
+
+  return new ImageData(out, width, height);
+}
+
 function renderClusterLayer(layer, sourceImageData, elapsed) {
   const { width, height, data } = sourceImageData;
   const previousData = previousSourceImageData ? previousSourceImageData.data : null;
@@ -406,7 +578,8 @@ function renderClusterLayer(layer, sourceImageData, elapsed) {
   const ghostCtx = layer.runtime.ghostCtx;
   const intenseTrack = layer.type === "clusterTrack";
   const clusterOnly = layer.type === "clusterOnly" || intenseTrack;
-  const step = Math.max(2, Math.round(5 - Math.min(params.grit, 1.35) * 0.75 - params.clusterQuantity * 1.6));
+  const preset = getQualityPreset();
+  const step = Math.max(2, Math.round((5 - Math.min(params.grit, 1.35) * 0.75 - params.clusterQuantity * 1.6) * preset.clusterStepScale));
   const clusterSpan = Math.max(8, Math.round(10 + params.clusterSize * 24 + (1 - params.clusterQuantity) * 14));
   const clusters = new Map();
 
@@ -492,7 +665,7 @@ function renderClusterLayer(layer, sourceImageData, elapsed) {
     .sort((a, b) => b.score - a.score);
 
   const selected = [];
-  const maxClusters = Math.max(12, Math.round(16 + params.clusterQuantity * (intenseTrack ? 180 : clusterOnly ? 92 : 54)));
+  const maxClusters = Math.max(12, Math.round((16 + params.clusterQuantity * (intenseTrack ? 180 : clusterOnly ? 92 : 54)) * preset.clusterLimitScale));
   candidates.forEach((candidate) => {
     if (selected.length >= maxClusters) {
       return;
@@ -634,10 +807,11 @@ function renderMonitorLayer(layer, sourceImageData, elapsed) {
   targetCtx.restore();
 }
 
-function renderCrtLayer(layer) {
+function renderCrtLayer(layer, sourceImageData) {
   const targetCtx = layer.runtime.ctx;
   const { width, height } = targetCtx.canvas;
   targetCtx.clearRect(0, 0, width, height);
+  const preset = getQualityPreset();
 
   const rgbShift = layer.params.rgb * width;
   const glow = layer.params.glow;
@@ -680,8 +854,8 @@ function renderCrtLayer(layer) {
   }
 
   if (edgeGlow > 0) {
-    const blockSize = Math.max(3, Math.round(3 + edgeGlow * 11));
-    const edgeImage = sourceCtx.getImageData(0, 0, width, height);
+    const blockSize = Math.max(3, Math.round((3 + edgeGlow * 11) * preset.edgeBlockScale));
+    const edgeImage = sourceImageData || sourceCtx.getImageData(0, 0, width, height);
     const edgeOutput = new Uint8ClampedArray(edgeImage.data.length);
 
     const lumaAt = (x, y) => {
@@ -754,6 +928,139 @@ function renderPresetLayer(layer, sourceImageData, elapsed) {
   layer.runtime.ghostCtx.drawImage(layer.runtime.canvas, 0, 0);
 }
 
+function renderInfraredLayer(layer, sourceImageData, elapsed) {
+  const processed = buildInfraredImage(sourceImageData, elapsed, layer);
+  const targetCtx = layer.runtime.ctx;
+  const ghostCtx = layer.runtime.ghostCtx;
+
+  targetCtx.clearRect(0, 0, processed.width, processed.height);
+  targetCtx.putImageData(processed, 0, 0);
+
+  ghostCtx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
+  ghostCtx.drawImage(layer.runtime.canvas, 0, 0);
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = "screen";
+  targetCtx.globalAlpha = 0.22;
+  targetCtx.filter = "blur(5px)";
+  targetCtx.drawImage(layer.runtime.ghostCanvas, 0, 0);
+  targetCtx.filter = "none";
+  targetCtx.globalAlpha = 0.12;
+  for (let y = 0; y < layer.runtime.canvas.height; y += 3) {
+    targetCtx.fillStyle = y % 6 === 0 ? "rgba(16, 8, 10, 0.26)" : "rgba(255, 255, 255, 0.03)";
+    targetCtx.fillRect(0, y, layer.runtime.canvas.width, 1);
+  }
+  targetCtx.restore();
+}
+
+function renderDetectLayer(layer, sourceImageData) {
+  const { width, height, data } = sourceImageData;
+  const previousData = previousSourceImageData?.data;
+  const targetCtx = layer.runtime.ctx;
+  const ghostCtx = layer.runtime.ghostCtx;
+  const auxCtx = layer.runtime.auxCtx;
+  const detectState = layer.runtime.detectState;
+  const preset = getQualityPreset();
+  const blockSize = Math.max(2, Math.round(preset.detectBlock));
+  const threshold = clamp(layer.params.threshold || 0.18, 0, 0.96);
+  const decay = clamp(layer.params.decay || 0.52, 0, 0.95);
+  const trigger = clamp(layer.params.trigger || 0.18, 0, 1);
+  const output = new Uint8ClampedArray(data.length);
+  let totalActivity = 0;
+  let blockCount = 0;
+
+  targetCtx.clearRect(0, 0, width, height);
+  auxCtx.clearRect(0, 0, width, height);
+
+  if (!previousData) {
+    detectState.history.length = 0;
+    detectState.activeAverage = 0;
+    ghostCtx.clearRect(0, 0, width, height);
+    return;
+  }
+
+  const lumaAt = (buffer, x, y) => {
+    const px = clamp(x, 0, width - 1);
+    const py = clamp(y, 0, height - 1);
+    const index = (py * width + px) * 4;
+    return buffer[index] * 0.299 + buffer[index + 1] * 0.587 + buffer[index + 2] * 0.114;
+  };
+
+  for (let by = 0; by < height; by += blockSize) {
+    for (let bx = 0; bx < width; bx += blockSize) {
+      const sampleA = [bx + blockSize * 0.25, by + blockSize * 0.25];
+      const sampleB = [bx + blockSize * 0.75, by + blockSize * 0.75];
+      const currentLuma = (lumaAt(data, sampleA[0], sampleA[1]) + lumaAt(data, sampleB[0], sampleA[1]) + lumaAt(data, sampleA[0], sampleB[1]) + lumaAt(data, sampleB[0], sampleB[1])) * 0.25;
+      const previousLuma = (lumaAt(previousData, sampleA[0], sampleA[1]) + lumaAt(previousData, sampleB[0], sampleA[1]) + lumaAt(previousData, sampleA[0], sampleB[1]) + lumaAt(previousData, sampleB[0], sampleB[1])) * 0.25;
+      const activity = clamp((Math.abs(currentLuma - previousLuma) / 255 - threshold) / Math.max(0.001, 1 - threshold), 0, 1);
+
+      blockCount += 1;
+      totalActivity += activity;
+      if (activity <= 0.001) {
+        continue;
+      }
+
+      const sampleIndex = (Math.min(height - 1, Math.round(by + blockSize * 0.5)) * width + Math.min(width - 1, Math.round(bx + blockSize * 0.5))) * 4;
+      const sourceRed = data[sampleIndex] / 255;
+      const tone = hslToRgb(0.01 + activity * 0.09, 0.94, clamp(0.18 + activity * 0.46 + sourceRed * 0.1, 0, 0.92));
+      const alpha = Math.round(clamp(activity * (0.8 + sourceRed * 0.4), 0, 1) * 255);
+      const maxY = Math.min(height, by + blockSize);
+      const maxX = Math.min(width, bx + blockSize);
+
+      for (let y = by; y < maxY; y += 1) {
+        for (let x = bx; x < maxX; x += 1) {
+          const index = (y * width + x) * 4;
+          output[index] = tone.r;
+          output[index + 1] = tone.g;
+          output[index + 2] = tone.b;
+          output[index + 3] = alpha;
+        }
+      }
+    }
+  }
+
+  detectState.history.push(blockCount ? totalActivity / blockCount : 0);
+  if (detectState.history.length > 30) {
+    detectState.history.shift();
+  }
+  detectState.activeAverage = detectState.history.reduce((sum, value) => sum + value, 0) / Math.max(1, detectState.history.length);
+
+  auxCtx.putImageData(new ImageData(output, width, height), 0, 0);
+
+  if (decay > 0) {
+    targetCtx.save();
+    targetCtx.globalAlpha = 0.32 + decay * 0.44;
+    targetCtx.filter = `blur(${Math.max(0.2, decay * 2.6)}px)`;
+    targetCtx.drawImage(layer.runtime.ghostCanvas, 0, 0);
+    targetCtx.filter = "none";
+    targetCtx.restore();
+  }
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = "screen";
+  targetCtx.globalAlpha = 0.96;
+  targetCtx.drawImage(layer.runtime.auxCanvas, 0, 0);
+  targetCtx.globalAlpha = 0.3;
+  targetCtx.filter = `blur(${Math.max(0.2, 1 + decay * 3)}px)`;
+  targetCtx.drawImage(layer.runtime.auxCanvas, 0, 0);
+  targetCtx.filter = "none";
+  targetCtx.restore();
+
+  if (detectState.activeAverage > trigger) {
+    const alertSize = Math.max(28, Math.round(Math.min(width, height) * 0.085));
+    targetCtx.save();
+    targetCtx.fillStyle = "rgba(255, 38, 12, 0.92)";
+    targetCtx.fillRect(0, 0, alertSize, alertSize);
+    targetCtx.strokeStyle = "rgba(255, 242, 230, 0.65)";
+    targetCtx.lineWidth = 1;
+    targetCtx.strokeRect(0.5, 0.5, alertSize - 1, alertSize - 1);
+    targetCtx.restore();
+  }
+
+  ghostCtx.clearRect(0, 0, width, height);
+  ghostCtx.drawImage(targetCtx.canvas, 0, 0);
+}
+
 function applyEditorPass(targetCtx, params, runtime) {
   const width = targetCtx.canvas.width;
   const height = targetCtx.canvas.height;
@@ -802,6 +1109,7 @@ function applyEditorPass(targetCtx, params, runtime) {
   }
 
   if (params.edgeGlow > 0 && runtime?.auxCtx) {
+    const preset = getQualityPreset();
     const passImage = targetCtx.getImageData(0, 0, width, height);
     const edgeOutput = new Uint8ClampedArray(passImage.data.length);
     const sample = (x, y) => {
@@ -811,7 +1119,7 @@ function applyEditorPass(targetCtx, params, runtime) {
       return passImage.data[index] * 0.299 + passImage.data[index + 1] * 0.587 + passImage.data[index + 2] * 0.114;
     };
 
-    const blockSize = Math.max(2, Math.round(2 + params.edgeGlow * 7));
+    const blockSize = Math.max(2, Math.round((2 + params.edgeGlow * 7) * preset.edgeBlockScale));
     for (let by = 0; by < height; by += blockSize) {
       for (let bx = 0; bx < width; bx += blockSize) {
         const sampleX = Math.min(width - 2, bx + Math.floor(blockSize * 0.5));
@@ -931,26 +1239,54 @@ function renderLayer(layer, sourceImageData, elapsed) {
   }
 
   if (layer.type === "crt") {
-    renderCrtLayer(layer);
+    renderCrtLayer(layer, sourceImageData);
     return;
   }
 
   if (layer.type === "cluster") {
+    if (!sourceImageData) {
+      return;
+    }
     renderClusterLayer(layer, sourceImageData, elapsed);
     return;
   }
 
   if (layer.type === "clusterOnly" || layer.type === "clusterTrack") {
+    if (!sourceImageData) {
+      return;
+    }
     renderClusterLayer(layer, sourceImageData, elapsed);
     return;
   }
 
   if (layer.type === "monitor") {
+    if (!sourceImageData) {
+      return;
+    }
     renderMonitorLayer(layer, sourceImageData, elapsed);
     return;
   }
 
+  if (layer.type === "infrared") {
+    if (!sourceImageData) {
+      return;
+    }
+    renderInfraredLayer(layer, sourceImageData, elapsed);
+    return;
+  }
+
+  if (layer.type === "detect") {
+    if (!sourceImageData) {
+      return;
+    }
+    renderDetectLayer(layer, sourceImageData);
+    return;
+  }
+
   if (layer.type === "black" || layer.type === "blu") {
+    if (!sourceImageData) {
+      return;
+    }
     renderPresetLayer(layer, sourceImageData, elapsed);
   }
 }
@@ -961,6 +1297,9 @@ function compositeLayer(layer) {
   }
 
   if (layer.type === "editor") {
+    if (layer.opacity <= 0 || editorPassIsNeutral(layer.params)) {
+      return;
+    }
     splitCtx.clearRect(0, 0, splitCanvas.width, splitCanvas.height);
     splitCtx.drawImage(compositeCanvas, 0, 0);
     scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
@@ -972,6 +1311,10 @@ function compositeLayer(layer) {
     compositeCtx.globalAlpha = layer.opacity;
     compositeCtx.drawImage(scratchCanvas, 0, 0);
     compositeCtx.globalAlpha = 1;
+    return;
+  }
+
+  if (layer.opacity <= 0) {
     return;
   }
 
@@ -997,13 +1340,16 @@ function renderCompositeFrame(elapsed) {
   compositeCtx.fillStyle = "#000000";
   compositeCtx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
 
-  const sourceImageData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  getLayers().forEach((layer) => {
+  const activeLayers = getLayers().filter((layer) => layer.visible && layer.opacity > 0);
+  const needsAnalysis = activeLayers.some(layerNeedsSourceImageData);
+  const sourceImageData = needsAnalysis ? sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height) : null;
+
+  activeLayers.forEach((layer) => {
     renderLayer(layer, sourceImageData, elapsed);
     compositeLayer(layer);
   });
 
-  previousSourceImageData = sourceImageData;
+  previousSourceImageData = needsAnalysis ? sourceImageData : null;
 }
 
 function drawOutputFrame() {
@@ -1022,14 +1368,21 @@ function drawOutputFrame() {
   }
 }
 
-function renderFrame() {
+function renderFrame(timestamp = 0) {
   if (!sourceVideo.videoWidth || !sourceVideo.videoHeight) {
-    renderHandle = requestAnimationFrame(renderFrame);
+    renderHandle = 0;
     return;
   }
 
+  const frameInterval = 1000 / targetFps;
+  if (lastRenderAt && timestamp - lastRenderAt < frameInterval) {
+    renderHandle = requestAnimationFrame(renderFrame);
+    return;
+  }
+  lastRenderAt = timestamp;
+
   drawVideoFit(sourceVideo, sourceCtx);
-  renderCompositeFrame(performance.now() / 1000);
+  renderCompositeFrame(timestamp / 1000);
   drawOutputFrame();
   renderHandle = requestAnimationFrame(renderFrame);
 }
@@ -1043,6 +1396,7 @@ function ensureLoop() {
 function stopLoop() {
   cancelAnimationFrame(renderHandle);
   renderHandle = 0;
+  lastRenderAt = 0;
 }
 
 function updateSplitButton() {
@@ -1089,7 +1443,7 @@ async function loadVideo(file) {
   layerEditor.reset();
   layerEditor.ensureBaseLayer();
   layerEditor.ensureEditorLayer();
-  previousSourceImageData = null;
+  resetFrameAnalysisState();
   layerEditor.renderLayerList();
   layerEditor.syncControlsFromSelection();
   fileNameText.textContent = `${file.name} • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight} • ${sourceVideo.duration.toFixed(2)}s`;
@@ -1102,7 +1456,6 @@ async function loadVideo(file) {
     setStatus("Video loaded. Press Play / Pause if autoplay is blocked.");
   }
 
-  trackEvent("video_upload", { file_name: file.name });
 }
 
 async function togglePlayback() {
@@ -1116,7 +1469,6 @@ async function togglePlayback() {
     try {
       await sourceVideo.play();
       setStatus("Playback running.");
-      trackEvent("video_play", { layer_count: getLayers().length });
     } catch {
       setStatus("Playback could not start.");
     }
@@ -1126,7 +1478,6 @@ async function togglePlayback() {
   sourceVideo.pause();
   stopReversePlayback();
   setStatus("Playback paused.");
-  trackEvent("video_pause", { layer_count: getLayers().length });
 }
 
 function stopPlayback() {
@@ -1176,7 +1527,7 @@ function resetVideoEffects() {
   }
   stopReversePlayback();
   layerEditor.resetEffects();
-  previousSourceImageData = null;
+  resetFrameAnalysisState();
   setStatus("Video effects reset.");
 }
 
@@ -1191,7 +1542,7 @@ async function exportLoop() {
   }
 
   ensureLoop();
-  const stream = canvas.captureStream(30);
+  const stream = canvas.captureStream(targetFps);
   if (!stream) {
     setStatus("Canvas capture is unavailable in this browser.");
     return;
@@ -1207,8 +1558,6 @@ async function exportLoop() {
   isRecording = true;
   exportButton.disabled = true;
   setStatus("Recording 7 second composite loop...");
-  trackEvent("video_export_start", { layer_count: getLayers().length });
-
   recorder.ondataavailable = (event) => {
     if (event.data && event.data.size > 0) {
       chunks.push(event.data);
@@ -1234,7 +1583,6 @@ async function exportLoop() {
     isRecording = false;
     exportButton.disabled = false;
     setStatus("Export complete. Downloaded `crtvideo-loop.webm`.");
-    trackEvent("video_export_complete", { layer_count: getLayers().length });
   };
 
   sourceVideo.currentTime = 0;
@@ -1294,6 +1642,14 @@ exportButton.addEventListener("click", () => {
 splitButton.addEventListener("click", () => {
   splitScreenEnabled = !splitScreenEnabled;
   updateSplitButton();
+});
+
+qualitySelect?.addEventListener("change", () => {
+  applyPerformanceSettings();
+});
+
+fpsSelect?.addEventListener("change", () => {
+  applyPerformanceSettings();
 });
 
 collapsiblePanelHeads.forEach((head) => {
@@ -1394,9 +1750,7 @@ layerEditor = createLayerEditor({
   setStatus,
   setOutput,
   markControlTouched,
-  trackLayerAdd: (type) => {
-    trackEvent("video_layer_add", { layer_type: type });
-  },
+  trackLayerAdd: () => {},
   disposeLayerRuntime: (layer) => {
     destroyDatamoshRuntime(layer);
   },
@@ -1412,4 +1766,4 @@ window.addEventListener("beforeunload", () => {
 layerEditor.renderLayerList();
 layerEditor.syncControlsFromSelection();
 updateSplitButton();
-ensureLoop();
+updateQualityMeta();

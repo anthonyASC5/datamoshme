@@ -1,27 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Datamosh V1</title>
+    <title>DATAMOSH V1</title>
     <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;800&family=Press+Start+2P&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --bg: #020202;
-        --panel-border: rgba(141, 255, 110, 0.24);
-        --green: #94ff66;
-        --acid: #dfff56;
-        --red: #ff5151;
-        --blue: #62d2ff;
-        --text: #eefbf4;
-        --muted: #90a69a;
+        --bg: #ece8e0;
+        --surface: #ffffff;
+        --surface-soft: #f7f3ec;
+        --line: #d9d1c6;
+        --ink: #322a25;
+        --muted: #8b7f72;
+        --accent: #f47a21;
+        --accent-deep: #d96410;
+        --accent-text: #ffffff;
       }
 
       * {
@@ -32,37 +32,19 @@
       body {
         margin: 0;
         min-height: 100%;
-        background:
-          radial-gradient(circle at top, rgba(68, 255, 90, 0.14), transparent 26%),
-          radial-gradient(circle at 80% 20%, rgba(255, 76, 76, 0.16), transparent 24%),
-          radial-gradient(circle at 30% 70%, rgba(84, 211, 255, 0.12), transparent 24%),
-          #000;
-        color: var(--text);
-        font-family: "Orbitron", sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "IBM Plex Mono", monospace;
+        text-transform: uppercase;
       }
 
-      body::before {
-        content: "";
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        background:
-          linear-gradient(to bottom, rgba(255, 255, 255, 0.03), transparent 12%, transparent 88%, rgba(255, 255, 255, 0.03)),
-          repeating-linear-gradient(
-            to bottom,
-            rgba(255, 255, 255, 0.02) 0,
-            rgba(255, 255, 255, 0.02) 1px,
-            transparent 1px,
-            transparent 4px
-          );
-        opacity: 0.28;
-        mix-blend-mode: screen;
+      body {
+        letter-spacing: 0.05em;
       }
 
       .page {
-        position: relative;
         min-height: 100vh;
-        padding: 22px;
+        padding: 20px;
       }
 
       .shell {
@@ -72,14 +54,11 @@
 
       .hero {
         margin-bottom: 18px;
-        padding: 18px 22px;
-        border-radius: 28px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: linear-gradient(180deg, rgba(14, 20, 14, 0.9), rgba(6, 8, 7, 0.92));
-        box-shadow:
-          0 0 28px rgba(148, 255, 102, 0.12),
-          inset 0 0 22px rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(16px);
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--surface);
+        box-shadow: 0 12px 32px rgba(50, 42, 37, 0.08);
       }
 
       .hero-top {
@@ -92,21 +71,16 @@
 
       .title-block h1 {
         margin: 0;
-        font-family: "Press Start 2P", cursive;
-        font-size: clamp(1rem, 2.3vw, 1.7rem);
-        letter-spacing: 0.18rem;
-        color: #fff;
-        text-shadow:
-          0 0 14px rgba(148, 255, 102, 0.35),
-          0 0 20px rgba(255, 81, 81, 0.2);
+        font-size: clamp(1.2rem, 2.6vw, 1.8rem);
+        font-weight: 700;
+        letter-spacing: 0.18em;
       }
 
       .title-block p {
-        margin: 12px 0 0;
-        font-size: 0.72rem;
-        letter-spacing: 0.16rem;
+        margin: 10px 0 0;
+        font-size: 0.74rem;
+        letter-spacing: 0.12em;
         color: var(--muted);
-        text-transform: uppercase;
       }
 
       .mode-tabs {
@@ -120,37 +94,29 @@
         align-items: center;
         justify-content: center;
         min-height: 40px;
-        padding: 10px 14px 8px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.04);
-        color: #fff;
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--surface-soft);
+        color: var(--ink);
         text-decoration: none;
-        text-transform: uppercase;
-        letter-spacing: 0.14rem;
-        font-size: 0.62rem;
-        transition:
-          transform 160ms ease,
-          border-color 160ms ease,
-          box-shadow 160ms ease;
+        font-size: 0.68rem;
+        letter-spacing: 0.12em;
+        box-shadow: 0 4px 0 rgba(50, 42, 37, 0.08);
       }
 
-      .mode-tab:hover {
-        transform: translateY(-1px);
+      body .mode-tab.pixel {
+        font-family: inherit;
       }
 
       .mode-tab.active {
-        font-family: "Press Start 2P", cursive;
-        letter-spacing: 0.08rem;
-        border-color: rgba(148, 255, 102, 0.38);
-        background: linear-gradient(90deg, rgba(148, 255, 102, 0.12), rgba(255, 81, 81, 0.14));
-        box-shadow:
-          0 0 18px rgba(148, 255, 102, 0.18),
-          inset 0 0 12px rgba(255, 255, 255, 0.05);
+        border-color: var(--accent-deep);
+        background: var(--accent);
+        color: var(--accent-text);
       }
 
       .hero-note {
-        margin-top: 18px;
+        margin-top: 16px;
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 12px;
@@ -158,24 +124,23 @@
 
       .note-card {
         padding: 14px;
+        border: 1px solid var(--line);
         border-radius: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.03);
+        background: var(--surface-soft);
       }
 
       .note-card strong {
         display: block;
         margin-bottom: 6px;
         font-size: 0.72rem;
-        letter-spacing: 0.14rem;
-        text-transform: uppercase;
-        color: var(--green);
+        letter-spacing: 0.12em;
+        color: var(--accent-deep);
       }
 
       .note-card span {
         color: var(--muted);
         font-size: 0.72rem;
-        line-height: 1.5;
+        line-height: 1.55;
       }
 
       .grid {
@@ -186,20 +151,10 @@
 
       .panel {
         padding: 18px;
-        border-radius: 26px;
-        border: 1px solid var(--panel-border);
-        background:
-          linear-gradient(180deg, rgba(13, 18, 16, 0.92), rgba(5, 7, 6, 0.94)),
-          repeating-linear-gradient(
-            to bottom,
-            rgba(255, 255, 255, 0.025) 0,
-            rgba(255, 255, 255, 0.025) 1px,
-            transparent 1px,
-            transparent 4px
-          );
-        box-shadow:
-          0 0 28px rgba(148, 255, 102, 0.08),
-          inset 0 0 18px rgba(255, 255, 255, 0.03);
+        border-radius: 24px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        box-shadow: 0 12px 30px rgba(50, 42, 37, 0.06);
       }
 
       .panel-header {
@@ -212,29 +167,27 @@
 
       .panel-header h2 {
         margin: 0;
-        font-size: 0.92rem;
-        letter-spacing: 0.16rem;
+        font-size: 0.86rem;
+        letter-spacing: 0.16em;
       }
 
       .tag {
-        padding: 5px 10px;
+        padding: 7px 10px;
         border-radius: 999px;
+        border: 1px solid var(--accent-deep);
+        background: var(--surface-soft);
+        color: var(--accent-deep);
         font-size: 0.62rem;
-        letter-spacing: 0.12rem;
-        color: var(--green);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
+        letter-spacing: 0.12em;
       }
 
       .preview-wrap {
         position: relative;
         aspect-ratio: 16 / 9;
-        border-radius: 20px;
+        border-radius: 18px;
         overflow: hidden;
-        background:
-          linear-gradient(180deg, rgba(5, 5, 5, 0.9), rgba(0, 0, 0, 0.96)),
-          radial-gradient(circle at top, rgba(148, 255, 102, 0.12), transparent 30%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: #111111;
+        border: 1px solid var(--line);
       }
 
       #mosh-canvas {
@@ -258,18 +211,18 @@
 
       .overlay-label {
         padding: 9px 12px 8px;
-        border-radius: 999px;
-        background: rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--line);
+        color: var(--ink);
         font-size: 0.62rem;
-        letter-spacing: 0.12rem;
-        text-transform: uppercase;
+        letter-spacing: 0.12em;
       }
 
       .overlay-label.pixel {
-        font-family: "Press Start 2P", cursive;
-        font-size: 0.56rem;
-        color: var(--acid);
+        background: var(--accent);
+        border-color: var(--accent-deep);
+        color: var(--accent-text);
       }
 
       .actions {
@@ -281,59 +234,38 @@
 
       .button,
       .file-button {
-        position: relative;
         display: inline-flex;
         min-height: 54px;
         align-items: center;
         justify-content: center;
         padding: 0 14px;
-        border-radius: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: linear-gradient(180deg, rgba(33, 48, 34, 0.96), rgba(13, 16, 14, 0.96));
-        color: #fff;
+        border-radius: 16px;
+        border: 1px solid var(--accent-deep);
+        background: var(--accent);
+        color: var(--accent-text);
         font: inherit;
         font-size: 0.78rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12rem;
+        letter-spacing: 0.12em;
         cursor: pointer;
-        overflow: hidden;
-        transition:
-          transform 160ms ease,
-          border-color 160ms ease,
-          box-shadow 160ms ease,
-          opacity 160ms ease;
-        box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.04);
+        text-decoration: none;
+        box-shadow: 0 6px 0 rgba(217, 100, 16, 0.24);
       }
 
-      .button::before,
-      .file-button::before {
-        content: "";
-        position: absolute;
-        inset: 1px;
-        border-radius: inherit;
-        background: linear-gradient(90deg, rgba(148, 255, 102, 0.15), rgba(255, 81, 81, 0.14));
-        opacity: 0.42;
-      }
-
-      .button span,
-      .file-button span {
-        position: relative;
-        z-index: 1;
-      }
-
-      .button:hover,
-      .file-button:hover {
-        transform: translateY(-1px);
-        border-color: rgba(148, 255, 102, 0.34);
-        box-shadow:
-          0 0 18px rgba(148, 255, 102, 0.16),
-          0 0 18px rgba(255, 81, 81, 0.12);
+      .button.secondary,
+      .file-button.secondary {
+        background: var(--surface-soft);
+        color: var(--accent-deep);
       }
 
       .button:disabled {
         opacity: 0.45;
         cursor: progress;
-        transform: none;
+        box-shadow: none;
+      }
+
+      .button span,
+      .file-button span {
+        pointer-events: none;
       }
 
       input[type="file"] {
@@ -351,9 +283,9 @@
 
       .clip-card {
         padding: 14px;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.03);
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: var(--surface-soft);
       }
 
       .clip-head {
@@ -367,29 +299,27 @@
       .clip-card h3 {
         margin: 0;
         font-size: 0.78rem;
-        letter-spacing: 0.14rem;
-        text-transform: uppercase;
+        letter-spacing: 0.14em;
       }
 
       .signal {
         width: 12px;
         height: 12px;
         border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: #4b1616;
-        box-shadow: 0 0 0 transparent;
+        border: 1px solid var(--line);
+        background: #d8d1c7;
       }
 
       .signal.ready {
-        background: #8eff6a;
-        box-shadow: 0 0 12px rgba(142, 255, 106, 0.55);
+        background: var(--accent);
+        border-color: var(--accent-deep);
       }
 
       .clip-meta {
         margin-top: 10px;
         color: var(--muted);
         font-size: 0.7rem;
-        letter-spacing: 0.06rem;
+        letter-spacing: 0.06em;
       }
 
       .slider-grid {
@@ -406,13 +336,12 @@
 
       .slider-row label {
         font-size: 0.72rem;
-        letter-spacing: 0.12rem;
-        text-transform: uppercase;
+        letter-spacing: 0.12em;
       }
 
       .slider-row output {
         justify-self: end;
-        color: var(--green);
+        color: var(--accent-deep);
         font-size: 0.76rem;
       }
 
@@ -420,11 +349,10 @@
         -webkit-appearance: none;
         appearance: none;
         width: 100%;
-        height: 8px;
+        height: 6px;
         border-radius: 999px;
-        background: linear-gradient(90deg, rgba(148, 255, 102, 0.88), rgba(255, 81, 81, 0.78));
+        background: #ddd5ca;
         outline: none;
-        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
       }
 
       input[type="range"]::-webkit-slider-thumb {
@@ -433,8 +361,8 @@
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        border: 2px solid #fff;
-        background: #050706;
+        border: 2px solid var(--surface);
+        background: var(--accent);
         cursor: pointer;
       }
 
@@ -442,21 +370,39 @@
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        border: 2px solid #fff;
-        background: #050706;
+        border: 2px solid var(--surface);
+        background: var(--accent);
         cursor: pointer;
       }
 
       .status {
         margin-top: 16px;
         min-height: 1.4em;
-        color: #f2fff1;
+        color: var(--accent-deep);
         font-size: 0.76rem;
-        letter-spacing: 0.05rem;
+        letter-spacing: 0.08em;
       }
 
       .hidden-video {
         display: none;
+      }
+
+      body .site-home-logo {
+        border: 1px solid var(--accent-deep);
+        background: var(--surface);
+        color: var(--accent-deep);
+        box-shadow: none;
+      }
+
+      body .site-home-logo.is-home {
+        border-color: var(--accent-deep);
+        box-shadow: none;
+      }
+
+      body .site-home-logo span {
+        font-family: "IBM Plex Mono", monospace !important;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
       }
 
       @media (max-width: 1080px) {
@@ -494,8 +440,8 @@
         <header class="hero">
           <div class="hero-top">
             <div class="title-block">
-              <h1>DATAMOSH</h1>
-              <p>Transition lab for smashed motion vectors and melted cuts</p>
+              <h1>DATAMOSH V1</h1>
+              <p>TRANSITION LAB FOR SMASHED MOTION VECTORS AND MELTED CUTS</p>
             </div>
 
             <nav class="mode-tabs" aria-label="Modes"></nav>
@@ -503,16 +449,16 @@
 
           <div class="hero-note">
             <div class="note-card">
-              <strong>Browser Mosh</strong>
-              <span>This page rebuilds the cut from stale blocks, broken motion, delayed refresh, and chroma corruption.</span>
+              <strong>BROWSER MOSH</strong>
+              <span>THIS PAGE REBUILDS THE CUT FROM STALE BLOCKS, BROKEN MOTION, DELAYED REFRESH, AND CHROMA CORRUPTION.</span>
             </div>
             <div class="note-card">
-              <strong>Two-Clip Flow</strong>
-              <span>The last frame of clip A is held, then clip B motion chews through it without a clean opening refresh.</span>
+              <strong>TWO-CLIP FLOW</strong>
+              <span>THE LAST FRAME OF CLIP A IS HELD, THEN CLIP B MOTION CHEWS THROUGH IT WITHOUT A CLEAN OPENING REFRESH.</span>
             </div>
             <div class="note-card">
-              <strong>Record</strong>
-              <span>Record the live canvas and download the full datamosh pass as a WebM. Keep inputs under 20 seconds for stable playback.</span>
+              <strong>RECORD</strong>
+              <span>RECORD THE LIVE CANVAS AND DOWNLOAD THE FULL DATAMOSH PASS AS A WEBM. KEEP INPUTS UNDER 20 SECONDS FOR STABLE PLAYBACK.</span>
             </div>
           </div>
         </header>
@@ -520,100 +466,100 @@
         <main class="grid">
           <section class="panel">
             <div class="panel-header">
-              <h2>Preview</h2>
-              <span class="tag">Live Canvas</span>
+              <h2>PREVIEW</h2>
+              <span class="tag">LIVE CANVAS</span>
             </div>
 
             <div class="preview-wrap">
               <canvas id="mosh-canvas" width="960" height="540"></canvas>
               <div class="preview-overlay">
-                <div class="overlay-label" id="timeline-label">Load two clips to begin</div>
+                <div class="overlay-label" id="timeline-label">LOAD TWO CLIPS TO BEGIN</div>
                 <div class="overlay-label pixel">DATAMOSH</div>
               </div>
             </div>
 
             <div class="actions">
-              <button class="button" id="preview-button" type="button"><span>Preview Transition</span></button>
-              <button class="button" id="stop-button" type="button"><span>Stop</span></button>
-              <button class="button" id="export-button" type="button"><span>Record WebM</span></button>
+              <button class="button" id="preview-button" type="button"><span>PREVIEW TRANSITION</span></button>
+              <button class="button secondary" id="stop-button" type="button"><span>STOP</span></button>
+              <button class="button" id="export-button" type="button"><span>RECORD WEBM</span></button>
             </div>
 
-            <div class="status" id="status-text">Load clip A and clip B, then set the transition cut points.</div>
+            <div class="status" id="status-text">LOAD CLIP A AND CLIP B, THEN SET THE TRANSITION CUT POINTS.</div>
           </section>
 
           <section class="panel">
             <div class="panel-header">
-              <h2>Controls</h2>
-              <span class="tag">Gremlin Mode</span>
+              <h2>CONTROLS</h2>
+              <span class="tag">V1</span>
             </div>
 
             <div class="video-grid">
               <div class="clip-card">
                 <div class="clip-head">
-                  <h3>Clip A</h3>
+                  <h3>CLIP A</h3>
                   <span class="signal" id="video-a-light" aria-hidden="true"></span>
                 </div>
-                <label class="file-button" for="video-a-input"><span>Upload Video A</span></label>
+                <label class="file-button secondary" for="video-a-input"><span>UPLOAD VIDEO A</span></label>
                 <input id="video-a-input" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" />
-                <div class="clip-meta" id="video-a-meta">No file loaded.</div>
+                <div class="clip-meta" id="video-a-meta">NO FILE LOADED.</div>
               </div>
 
               <div class="clip-card">
                 <div class="clip-head">
-                  <h3>Clip B</h3>
+                  <h3>CLIP B</h3>
                   <span class="signal" id="video-b-light" aria-hidden="true"></span>
                 </div>
-                <label class="file-button" for="video-b-input"><span>Upload Video B</span></label>
+                <label class="file-button secondary" for="video-b-input"><span>UPLOAD VIDEO B</span></label>
                 <input id="video-b-input" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" />
-                <div class="clip-meta" id="video-b-meta">No file loaded.</div>
+                <div class="clip-meta" id="video-b-meta">NO FILE LOADED.</div>
               </div>
             </div>
 
             <div class="slider-grid" style="margin-top: 16px;">
               <div class="slider-row">
-                <label for="clip-a-end">Clip A End</label>
+                <label for="clip-a-end">CLIP A END</label>
                 <input id="clip-a-end" type="range" min="0" max="10" step="0.01" value="1.63" />
-                <output id="clip-a-end-output">1.63s</output>
+                <output id="clip-a-end-output">1.63S</output>
               </div>
 
               <div class="slider-row">
-                <label for="clip-b-start">Clip B Start</label>
+                <label for="clip-b-start">CLIP B START</label>
                 <input id="clip-b-start" type="range" min="0" max="10" step="0.01" value="6.03" />
-                <output id="clip-b-start-output">6.03s</output>
+                <output id="clip-b-start-output">6.03S</output>
               </div>
 
               <div class="slider-row">
-                <label for="transition-duration">Mosh Duration</label>
+                <label for="transition-duration">MOSH DURATION</label>
                 <input id="transition-duration" type="range" min="0.4" max="4" step="0.01" value="2.5" />
-                <output id="transition-duration-output">2.50s</output>
+                <output id="transition-duration-output">2.50S</output>
               </div>
 
               <div class="slider-row">
-                <label for="mosh-amount">Mosh Strength</label>
+                <label for="mosh-amount">MOSH STRENGTH</label>
                 <input id="mosh-amount" type="range" min="0.1" max="1.5" step="0.01" value="0.9" />
                 <output id="mosh-amount-output">0.90</output>
               </div>
 
               <div class="slider-row">
-                <label for="block-size">Block Size</label>
+                <label for="block-size">BLOCK SIZE</label>
                 <input id="block-size" type="range" min="8" max="40" step="2" value="16" />
-                <output id="block-size-output">16px</output>
+                <output id="block-size-output">16PX</output>
               </div>
 
               <div class="slider-row">
-                <label for="frame-hold">Block Persistence</label>
+                <label for="frame-hold">BLOCK PERSISTENCE</label>
                 <input id="frame-hold" type="range" min="1" max="24" step="1" value="12" />
-                <output id="frame-hold-output">12f</output>
+                <output id="frame-hold-output">12F</output>
               </div>
 
               <div class="slider-row">
-                <label for="refresh-failure">Refresh Failure</label>
+                <label for="refresh-failure">REFRESH FAILURE</label>
                 <input id="refresh-failure" type="range" min="0.05" max="1" step="0.01" value="0.92" />
                 <output id="refresh-failure-output">92%</output>
               </div>
 
               <div class="slider-row">
-                <label for="motion-smear">Motion Drag</label>
+                <label for="motion-smear">MOTION DRAG</label>
                 <input id="motion-smear" type="range" min="0" max="1.5" step="0.01" value="1.2" />
                 <output id="motion-smear-output">1.20</output>
               </div>
@@ -626,10 +572,6 @@
       </div>
     </div>
 
-    <script src="../js/analytics-config.js"></script>
-    <script type="module">
-      import "../js/analytics.js";
-    </script>
     <script src="../js/mode-nav.js"></script>
     <script type="module" src="../js/datamosh-v1.js"></script>
   </body>

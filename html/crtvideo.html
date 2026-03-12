@@ -255,6 +255,13 @@
         grid-template-columns: 1fr;
       }
 
+      .settings-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
       .button {
         display: inline-flex;
         align-items: center;
@@ -447,6 +454,16 @@
         color: #0b63ff;
       }
 
+      .preset-button[data-add-layer="infrared"] {
+        border-color: #ff5a36;
+        color: #ff5a36;
+      }
+
+      .preset-button[data-add-layer="detect"] {
+        border-color: #d62828;
+        color: #d62828;
+      }
+
       .preset-button[data-add-layer="cluster"] {
         border-color: #d62828;
         color: #d62828;
@@ -533,6 +550,24 @@
 
       .layer-row-card[data-layer-type="blu"] {
         background: rgba(11, 99, 255, 0.05);
+      }
+
+      .layer-row-card[data-layer-type="infrared"] .layer-name,
+      .layer-row-card[data-layer-type="infrared"] .layer-type {
+        color: #ff5a36;
+      }
+
+      .layer-row-card[data-layer-type="infrared"] {
+        background: rgba(255, 90, 54, 0.08);
+      }
+
+      .layer-row-card[data-layer-type="detect"] .layer-name,
+      .layer-row-card[data-layer-type="detect"] .layer-type {
+        color: #d62828;
+      }
+
+      .layer-row-card[data-layer-type="detect"] {
+        background: rgba(214, 40, 40, 0.08);
       }
 
       .layer-row-card[data-layer-type="cluster"] .layer-name,
@@ -719,6 +754,10 @@
           grid-template-columns: 1fr;
         }
 
+        .settings-grid {
+          grid-template-columns: 1fr;
+        }
+
         .slider-row {
           grid-template-columns: 1fr;
         }
@@ -859,10 +898,30 @@
                   <button class="button" id="export-button" type="button">Export Loop</button>
                 </div>
 
+                <div class="settings-grid">
+                  <div class="layer-field">
+                    <label for="quality-select">Render Quality</label>
+                    <select id="quality-select">
+                      <option value="performance">Performance 55%</option>
+                      <option value="balanced" selected>Balanced 72%</option>
+                      <option value="quality">Quality 100%</option>
+                    </select>
+                  </div>
+                  <div class="layer-field">
+                    <label for="fps-select">FPS Cap</label>
+                    <select id="fps-select">
+                      <option value="24">24 FPS</option>
+                      <option value="30" selected>30 FPS</option>
+                      <option value="60">60 FPS</option>
+                    </select>
+                  </div>
+                </div>
+
                 <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
                 <video id="video-source" playsinline loop muted crossorigin="anonymous"></video>
 
                 <div class="meta" id="file-name">No file loaded.</div>
+                <div class="meta" id="quality-meta">Balanced quality renders at 72% resolution and caps preview at 30 FPS.</div>
                 <div class="status" id="status-text">Ready. Upload a video for flat playback and export.</div>
               </div>
             </section>
@@ -886,6 +945,8 @@
                   <button class="button preset-button" data-add-layer="monitor" type="button">CRT Monitor</button>
                   <button class="button preset-button" data-add-layer="black" type="button">Black Data</button>
                   <button class="button preset-button" data-add-layer="blu" type="button">BLU</button>
+                  <button class="button preset-button" data-add-layer="infrared" type="button">Infrared Camera</button>
+                  <button class="button preset-button" data-add-layer="detect" type="button">Detect</button>
                   <button class="button preset-button" data-add-layer="cluster" type="button">Cluster Edge Tracker</button>
                   <button class="button preset-button" data-add-layer="clusterOnly" type="button">Cluster Only</button>
                   <button class="button preset-button" data-add-layer="clusterTrack" type="button">Full Cluster Track</button>
@@ -897,7 +958,6 @@
       </div>
     </div>
 
-    <script src="../js/analytics-config.js"></script>
     <script src="../js/mode-nav.js"></script>
     <script type="module" src="../js/crtvideo.js"></script>
   </body>

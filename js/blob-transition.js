@@ -1,5 +1,3 @@
-import { trackEvent } from "./analytics.js";
-
 const PREVIEW_FPS = 30;
 const SAMPLE_INTERVAL = 1 / PREVIEW_FPS;
 const MAX_RENDER_WIDTH = 1280;
@@ -707,9 +705,6 @@ async function startTransitionLoop() {
   updateTransportLabels();
   await startPhase();
   state.previewMode = "loop";
-  trackEvent("blobtransition_v1_start", {
-    direction: "A_to_B",
-  });
   state.rafId = requestAnimationFrame((now) => {
     renderTransitionFrame(now).catch(() => {
       setStatus("Blob Transition failed.");
