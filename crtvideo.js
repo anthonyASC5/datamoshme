@@ -78,6 +78,17 @@ let layerEditor = null;
 let reversePlaybackHandle = 0;
 let reversePlaybackStamp = 0;
 
+function cloneChunk(chunk) {
+  const data = new Uint8Array(chunk.byteLength);
+  chunk.copyTo(data);
+  return new EncodedVideoChunk({
+    type: chunk.type,
+    timestamp: chunk.timestamp,
+    duration: chunk.duration,
+    data,
+  });
+}
+
 function setStatus(message) {
   statusText.textContent = message;
 }
@@ -123,7 +134,96 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
     ghostCtx,
     auxCanvas,
     auxCtx,
+    mosh: null,
   };
+}
+
+function destroyDatamoshRuntime(layer) {
+  const mosh = layer?.runtime?.mosh;
+  if (!mosh) {
+    return;
+  }
+
+  try {
+    mosh.encoder?.close();
+  } catch {}
+  try {
+    mosh.decoder?.close();
+  } catch {}
+  layer.runtime.mosh = null;
+}
+
+function ensureDatamoshRuntime(layer) {
+  const runtime = layer.runtime;
+  const width = runtime.canvas.width;
+  const height = runtime.canvas.height;
+  const existing = runtime.mosh;
+
+  if (!window.VideoEncoder || !window.VideoDecoder || !window.VideoFrame) {
+    return null;
+  }
+
+  if (existing && existing.width === width && existing.height === height) {
+    return existing;
+  }
+
+  destroyDatamoshRuntime(layer);
+
+  const mosh = {
+    width,
+    height,
+    encoder: null,
+    decoder: null,
+    frameCount: 0,
+    forceKeyFrame: true,
+    errored: false,
+  };
+
+  const drawDecodedFrame = (frame) => {
+    runtime.ctx.clearRect(0, 0, width, height);
+    runtime.ctx.save();
+    if (layer.params.mirror) {
+      runtime.ctx.translate(width, 0);
+      runtime.ctx.scale(-1, 1);
+    }
+    runtime.ctx.drawImage(frame, 0, 0, width, height);
+    runtime.ctx.restore();
+    frame.close();
+  };
+
+  mosh.decoder = new VideoDecoder({
+    output: drawDecodedFrame,
+    error: (error) => {
+      mosh.errored = true;
+      console.error("Datamosh decoder error:", error);
+    },
+  });
+  mosh.decoder.configure({ codec: "vp8" });
+
+  mosh.encoder = new VideoEncoder({
+    output: (chunk) => {
+      if (!mosh.decoder || mosh.decoder.state !== "configured") {
+        return;
+      }
+
+      const repeatCount = chunk.type === "key" ? 1 : Math.max(1, Math.round(layer.params.speed || 2));
+      for (let index = 0; index < repeatCount; index += 1) {
+        mosh.decoder.decode(cloneChunk(chunk));
+      }
+    },
+    error: (error) => {
+      mosh.errored = true;
+      console.error("Datamosh encoder error:", error);
+    },
+  });
+  mosh.encoder.configure({
+    codec: "vp8",
+    width,
+    height,
+  });
+
+  runtime.mosh = mosh;
+  return mosh;
 }
 
 function drawVideoFit(video, targetCtx) {
@@ -782,10 +882,51 @@ function applyEditorPass(targetCtx, params, runtime) {
   }
 }
 
+function renderDatamoshLayer(layer) {
+  const runtime = layer.runtime;
+  const width = runtime.canvas.width;
+  const height = runtime.canvas.height;
+  const mosh = ensureDatamoshRuntime(layer);
+
+  if (!mosh || mosh.errored) {
+    runtime.ctx.clearRect(0, 0, width, height);
+    runtime.ctx.save();
+    if (layer.params.mirror) {
+      runtime.ctx.translate(width, 0);
+      runtime.ctx.scale(-1, 1);
+    }
+    runtime.ctx.drawImage(sourceCanvas, 0, 0, width, height);
+    runtime.ctx.restore();
+    return;
+  }
+
+  mosh.frameCount += 1;
+  const keyframeEvery = Math.max(1, Math.round(layer.params.keyframeEvery || 10));
+  const frame = new VideoFrame(sourceCanvas);
+  try {
+    mosh.encoder.encode(frame, {
+      keyFrame: mosh.forceKeyFrame || mosh.frameCount % keyframeEvery === 0,
+    });
+    mosh.forceKeyFrame = false;
+  } catch (error) {
+    mosh.errored = true;
+    console.error("Datamosh encode failed:", error);
+    runtime.ctx.clearRect(0, 0, width, height);
+    runtime.ctx.drawImage(sourceCanvas, 0, 0, width, height);
+  } finally {
+    frame.close();
+  }
+}
+
 function renderLayer(layer, sourceImageData, elapsed) {
   if (layer.type === "video") {
     layer.runtime.ctx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
     layer.runtime.ctx.drawImage(sourceCanvas, 0, 0);
+    return;
+  }
+
+  if (layer.type === "datamosh") {
+    renderDatamoshLayer(layer);
     return;
   }
 
@@ -1256,9 +1397,13 @@ layerEditor = createLayerEditor({
   trackLayerAdd: (type) => {
     trackEvent("video_layer_add", { layer_type: type });
   },
+  disposeLayerRuntime: (layer) => {
+    destroyDatamoshRuntime(layer);
+  },
 });
 
 window.addEventListener("beforeunload", () => {
+  getLayers().forEach((layer) => destroyDatamoshRuntime(layer));
   stopReversePlayback();
   stopLoop();
   revokeActiveUrl();

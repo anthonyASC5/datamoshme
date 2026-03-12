@@ -1,23 +1,33 @@
 (function () {
+  const TAB_CONFIG = [
+    { href: "./datamosh.html", label: "Datamosh", pixel: true, aliases: ["./datamosh-live.html", "./datamosh-video.html", "./index.html", "./"] },
+    { href: "./crtvideo.html", label: "CRT Video", pixel: false },
+    { href: "./datamosh-v1.html", label: "V1", pixel: true, aliases: ["./datamosh-classic.html"] },
+    { href: "./datamosh-v2.html", label: "V2", pixel: true, aliases: ["./datamosh-two-clip.html"] },
+    { href: "./datamosh-v3.html", label: "V3", pixel: true, aliases: ["./datamosh-ffmpeg.html"] },
+    { href: "./blob-transition.html", label: "Blob Transition", pixel: true, aliases: ["./blobtransition.html"] },
+    { href: "./crtimage.html", label: "CRT Image", pixel: false },
+  ];
+
   function ensurePixelFont() {
-    if (document.getElementById('mode-nav-pixel-font')) {
+    if (document.getElementById("mode-nav-pixel-font")) {
       return;
     }
 
-    const fontLink = document.createElement('link');
-    fontLink.id = 'mode-nav-pixel-font';
-    fontLink.rel = 'stylesheet';
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap';
+    const fontLink = document.createElement("link");
+    fontLink.id = "mode-nav-pixel-font";
+    fontLink.rel = "stylesheet";
+    fontLink.href = "https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap";
     document.head.append(fontLink);
   }
 
   function injectStyles() {
-    if (document.getElementById('mode-nav-style')) {
+    if (document.getElementById("mode-nav-style")) {
       return;
     }
 
-    const style = document.createElement('style');
-    style.id = 'mode-nav-style';
+    const style = document.createElement("style");
+    style.id = "mode-nav-style";
     style.textContent = `
       .site-home-logo {
         position: fixed;
@@ -39,10 +49,10 @@
       }
 
       .site-home-logo.is-home {
-        border-color: #ff8a1e;
+        border-color: #66ff7a;
         box-shadow:
           0 8px 24px rgba(0, 0, 0, 0.28),
-          0 0 22px rgba(255, 138, 30, 0.18);
+          0 0 22px rgba(102, 255, 122, 0.22);
       }
 
       .site-home-logo span {
@@ -50,63 +60,58 @@
         font-size: 0.72rem;
         line-height: 1.2;
       }
-
     `;
     document.head.append(style);
   }
 
-  function normalizePrimaryLinks(nav) {
-    Array.from(nav.querySelectorAll('a.mode-tab')).forEach((link) => {
-      const href = link.getAttribute('href');
-      const label = (link.textContent || '').trim().toUpperCase();
-
-      if (href === './index.html' && label === 'CRT VIDEO') {
-        link.href = './crtvideo.html';
-      }
-    });
+  function canonicalPath(pathname) {
+    const shortPath = pathname.split("/").pop() || "index.html";
+    const localPath = shortPath ? `./${shortPath}` : "./";
+    const match = TAB_CONFIG.find((tab) => tab.href === localPath || tab.aliases?.includes(localPath));
+    return match?.href || localPath;
   }
 
-  function moveDatamoshVideoFirst(nav) {
-    const datamoshVideoLink = Array.from(nav.querySelectorAll('a.mode-tab')).find(
-      (link) => link.getAttribute('href') === './datamosh-video.html'
-    );
-
-    if (!datamoshVideoLink) {
-      return;
-    }
-
-    nav.insertBefore(datamoshVideoLink, nav.firstChild);
+  function rebuildNav(nav) {
+    const activeHref = canonicalPath(window.location.pathname);
+    nav.innerHTML = TAB_CONFIG.map((tab) => {
+      const classes = ["mode-tab"];
+      if (tab.pixel) {
+        classes.push("pixel");
+      }
+      if (tab.href === activeHref) {
+        classes.push("active");
+      }
+      return `<a class="${classes.join(" ")}" href="${tab.href}">${tab.label}</a>`;
+    }).join("");
   }
 
   function ensureHomeLogo() {
-    if (document.querySelector('.site-home-logo')) {
+    if (document.querySelector(".site-home-logo")) {
       return;
     }
 
-    const logo = document.createElement('a');
-    logo.className = 'site-home-logo';
-    logo.href = './index.html';
-    logo.setAttribute('aria-label', 'Datamosh Video home');
-    logo.innerHTML = '<span>DATAMOSH<br>VIDEO</span>';
-    if (window.location.pathname.endsWith('/datamosh-video.html') || window.location.pathname === '/' || window.location.pathname.endsWith('/index.html')) {
-      logo.classList.add('is-home');
+    const logo = document.createElement("a");
+    logo.className = "site-home-logo";
+    logo.href = "./datamosh.html";
+    logo.setAttribute("aria-label", "Datamosh home");
+    logo.innerHTML = "<span>DATAMOSH</span>";
+    if (canonicalPath(window.location.pathname) === "./datamosh.html") {
+      logo.classList.add("is-home");
     }
     document.body.append(logo);
   }
 
   function enhanceNav(nav) {
-    if (!nav || nav.dataset.dropdownReady === 'true') {
+    if (!nav || nav.dataset.dropdownReady === "true") {
       return;
     }
 
-    normalizePrimaryLinks(nav);
-    moveDatamoshVideoFirst(nav);
-
-    nav.dataset.dropdownReady = 'true';
+    rebuildNav(nav);
+    nav.dataset.dropdownReady = "true";
   }
 
   ensurePixelFont();
   injectStyles();
-  document.querySelectorAll('nav.mode-tabs').forEach(enhanceNav);
+  document.querySelectorAll("nav.mode-tabs").forEach(enhanceNav);
   ensureHomeLogo();
 })();

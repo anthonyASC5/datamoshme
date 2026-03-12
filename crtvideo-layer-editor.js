@@ -19,6 +19,10 @@ function defaultLayerParams(type) {
     return { glow: 0.4, rgb: 0.003, scan: 0.04, edgeGlow: 0.28 };
   }
 
+  if (type === "datamosh") {
+    return { speed: 2, keyframeEvery: 10, mirror: true };
+  }
+
   if (type === "monitor") {
     return {};
   }
@@ -102,6 +106,9 @@ function defaultBlendForType(type) {
   if (type === "crt" || type === "cluster" || type === "clusterOnly" || type === "clusterTrack" || type === "monitor") {
     return "screen";
   }
+  if (type === "datamosh") {
+    return "normal";
+  }
   if (type === "editor") {
     return "normal";
   }
@@ -112,6 +119,7 @@ function layerLabelForType(type) {
   return (
     {
       video: "Base Video",
+      datamosh: "Datamosh",
       crt: "CRT Pass",
       monitor: "CRT Monitor",
       black: "Black Data",
@@ -139,6 +147,7 @@ export function createLayerEditor({
   setOutput,
   markControlTouched,
   trackLayerAdd,
+  disposeLayerRuntime,
 }) {
   let layers = [];
   let selectedLayerId = null;
@@ -208,6 +217,14 @@ export function createLayerEditor({
   function buildInlineControls(layer) {
     if (layer.type === "crt") {
       return createInlineSlider("Edge Glow", "edgeGlow", layer.params.edgeGlow, 0, 1, 0.01);
+    }
+
+    if (layer.type === "datamosh") {
+      let controls = "";
+      controls += createInlineSlider("Speed", "speed", layer.params.speed, 1, 10, 1);
+      controls += createInlineSlider("Clean Rate", "keyframeEvery", layer.params.keyframeEvery, 1, 24, 1);
+      controls += createInlineToggle("Mirror", "mirror", Boolean(layer.params.mirror));
+      return controls;
     }
 
     if (!["black", "blu", "cluster", "clusterOnly", "clusterTrack"].includes(layer.type)) {
@@ -488,6 +505,7 @@ export function createLayerEditor({
       return;
     }
 
+    disposeLayerRuntime?.(layer);
     layers = layers.filter((entry) => entry.id !== layerId);
     if (selectedLayerId === layerId) {
       selectedLayerId = layers[layers.length - 1]?.id ?? null;
@@ -542,6 +560,7 @@ export function createLayerEditor({
   }
 
   function reset() {
+    layers.forEach((layer) => disposeLayerRuntime?.(layer));
     layers = [];
     selectedLayerId = null;
   }
@@ -549,6 +568,11 @@ export function createLayerEditor({
   function resetEffects() {
     const baseLayer = layers.find((layer) => layer.type === "video") || null;
     const editorLayer = getEditorLayer();
+    layers.forEach((layer) => {
+      if (layer !== baseLayer && layer !== editorLayer) {
+        disposeLayerRuntime?.(layer);
+      }
+    });
     if (editorLayer) {
       editorLayer.params = defaultLayerParams("editor");
       editorLayer.visible = true;

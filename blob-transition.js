@@ -589,7 +589,7 @@ function finishRecording() {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `blobtransition-v1-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.webm`;
+  anchor.download = `blob-transition-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.webm`;
   anchor.click();
   URL.revokeObjectURL(url);
   state.recordChunks = [];
@@ -689,7 +689,7 @@ async function renderTransitionFrame(now) {
 
   state.rafId = requestAnimationFrame((time) => {
     renderTransitionFrame(time).catch(() => {
-      setStatus("BlobTransition v1 failed.");
+      setStatus("Blob Transition failed.");
       stopTransitionLoop();
     });
   });
@@ -712,7 +712,7 @@ async function startTransitionLoop() {
   });
   state.rafId = requestAnimationFrame((now) => {
     renderTransitionFrame(now).catch(() => {
-      setStatus("BlobTransition v1 failed.");
+      setStatus("Blob Transition failed.");
       stopTransitionLoop();
     });
   });
@@ -810,7 +810,7 @@ transitionButton.addEventListener("click", () => {
     return;
   }
   startTransitionLoop().catch(() => {
-    setStatus("BlobTransition v1 failed.");
+    setStatus("Blob Transition failed.");
     stopTransitionLoop();
   });
 });

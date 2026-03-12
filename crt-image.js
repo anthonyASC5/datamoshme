@@ -427,14 +427,14 @@ async function exportLoop() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "crtwrld-loop.webm";
+    anchor.download = "crt-image-loop.webm";
     anchor.click();
     URL.revokeObjectURL(url);
 
     stream.getTracks().forEach((track) => track.stop());
     isRecording = false;
     exportButton.disabled = false;
-    setStatus("Export complete. Downloaded `crtwrld-loop.webm`.");
+    setStatus("Export complete. Downloaded `crt-image-loop.webm`.");
     trackEvent("image_export_complete", {
       background: activeBackground,
       black_data: blackDataToggle.checked,

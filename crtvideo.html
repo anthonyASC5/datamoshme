@@ -417,6 +417,30 @@
         color: #7447ff;
       }
 
+      .preset-button[data-add-layer="datamosh"] {
+        border: 3px solid #6cff57;
+        background:
+          linear-gradient(180deg, rgba(22, 48, 14, 0.98), rgba(10, 20, 8, 0.98)),
+          #0f180d;
+        color: #eaffd6;
+        font-family: "Press Start 2P", "IBM Plex Mono", monospace;
+        font-size: 0.58rem;
+        letter-spacing: 0.06rem;
+        text-shadow: 0 0 10px rgba(108, 255, 87, 0.45);
+        box-shadow:
+          inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+          0 0 0 1px rgba(108, 255, 87, 0.18),
+          0 0 18px rgba(108, 255, 87, 0.26);
+      }
+
+      .preset-button[data-add-layer="datamosh"]:hover {
+        transform: translateY(-1px);
+        box-shadow:
+          inset 0 0 0 2px rgba(0, 0, 0, 0.35),
+          0 0 0 1px rgba(108, 255, 87, 0.24),
+          0 0 24px rgba(108, 255, 87, 0.34);
+      }
+
       .preset-button[data-add-layer="blu"] {
         border-color: #0b63ff;
         color: #0b63ff;
@@ -485,6 +509,15 @@
 
       .layer-row-card[data-layer-type="crt"] {
         background: rgba(116, 71, 255, 0.05);
+      }
+
+      .layer-row-card[data-layer-type="datamosh"] .layer-name,
+      .layer-row-card[data-layer-type="datamosh"] .layer-type {
+        color: #57ff74;
+      }
+
+      .layer-row-card[data-layer-type="datamosh"] {
+        background: rgba(87, 255, 116, 0.09);
       }
 
       .layer-row-card[data-layer-type="black"] .layer-name,
@@ -855,6 +888,7 @@
                   <span>Effects</span>
                 </div>
                 <div class="preset-grid">
+                  <button class="button preset-button" data-add-layer="datamosh" type="button">DATAMOSH</button>
                   <button class="button preset-button" data-add-layer="crt" type="button">CRT Pass</button>
                   <button class="button preset-button" data-add-layer="monitor" type="button">CRT Monitor</button>
                   <button class="button preset-button" data-add-layer="black" type="button">Black Data</button>
