@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DATAMOSH</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;800&family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #020202;
+        --panel-border: rgba(141, 255, 110, 0.24);
+        --green: #94ff66;
+        --acid: #dfff56;
+        --red: #ff5151;
+        --blue: #62d2ff;
+        --text: #eefbf4;
+        --muted: #90a69a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top, rgba(68, 255, 90, 0.14), transparent 26%),
+          radial-gradient(circle at 80% 20%, rgba(255, 76, 76, 0.16), transparent 24%),
+          radial-gradient(circle at 30% 70%, rgba(84, 211, 255, 0.12), transparent 24%),
+          #000;
+        color: var(--text);
+        font-family: "Orbitron", sans-serif;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.03), transparent 12%, transparent 88%, rgba(255, 255, 255, 0.03)),
+          repeating-linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.02) 0,
+            rgba(255, 255, 255, 0.02) 1px,
+            transparent 1px,
+            transparent 4px
+          );
+        opacity: 0.28;
+        mix-blend-mode: screen;
+      }
+
+      .page {
+        position: relative;
+        min-height: 100vh;
+        padding: 22px;
+      }
+
+      .shell {
+        max-width: 1320px;
+        margin: 0 auto;
+      }
+
+      .hero {
+        margin-bottom: 18px;
+        padding: 18px 22px;
+        border-radius: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: linear-gradient(180deg, rgba(14, 20, 14, 0.9), rgba(6, 8, 7, 0.92));
+        box-shadow:
+          0 0 28px rgba(148, 255, 102, 0.12),
+          inset 0 0 22px rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(16px);
+      }
+
+      .hero-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+      }
+
+      .title-block h1 {
+        margin: 0;
+        font-family: "Press Start 2P", cursive;
+        font-size: clamp(1rem, 2.3vw, 1.7rem);
+        letter-spacing: 0.18rem;
+        color: #fff;
+        text-shadow:
+          0 0 14px rgba(148, 255, 102, 0.35),
+          0 0 20px rgba(255, 81, 81, 0.2);
+      }
+
+      .title-block p {
+        margin: 12px 0 0;
+        font-size: 0.72rem;
+        letter-spacing: 0.16rem;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+
+      .mode-tabs {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .mode-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 10px 14px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: #fff;
+        text-decoration: none;
+        text-transform: uppercase;
+        letter-spacing: 0.14rem;
+        font-size: 0.62rem;
+        transition:
+          transform 160ms ease,
+          border-color 160ms ease,
+          box-shadow 160ms ease;
+      }
+
+      .mode-tab:hover {
+        transform: translateY(-1px);
+      }
+
+      .mode-tab.active {
+        font-family: "Press Start 2P", cursive;
+        letter-spacing: 0.08rem;
+        border-color: rgba(148, 255, 102, 0.38);
+        background: linear-gradient(90deg, rgba(148, 255, 102, 0.12), rgba(255, 81, 81, 0.14));
+        box-shadow:
+          0 0 18px rgba(148, 255, 102, 0.18),
+          inset 0 0 12px rgba(255, 255, 255, 0.05);
+      }
+
+      .hero-note {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .note-card {
+        padding: 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .note-card strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 0.72rem;
+        letter-spacing: 0.14rem;
+        text-transform: uppercase;
+        color: var(--green);
+      }
+
+      .note-card span {
+        color: var(--muted);
+        font-size: 0.72rem;
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 18px;
+        border-radius: 26px;
+        border: 1px solid var(--panel-border);
+        background:
+          linear-gradient(180deg, rgba(13, 18, 16, 0.92), rgba(5, 7, 6, 0.94)),
+          repeating-linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.025) 0,
+            rgba(255, 255, 255, 0.025) 1px,
+            transparent 1px,
+            transparent 4px
+          );
+        box-shadow:
+          0 0 28px rgba(148, 255, 102, 0.08),
+          inset 0 0 18px rgba(255, 255, 255, 0.03);
+      }
+
+      .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .panel-header h2 {
+        margin: 0;
+        font-size: 0.92rem;
+        letter-spacing: 0.16rem;
+      }
+
+      .tag {
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 0.62rem;
+        letter-spacing: 0.12rem;
+        color: var(--green);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .preview-wrap {
+        position: relative;
+        aspect-ratio: 16 / 9;
+        border-radius: 20px;
+        overflow: hidden;
+        background:
+          linear-gradient(180deg, rgba(5, 5, 5, 0.9), rgba(0, 0, 0, 0.96)),
+          radial-gradient(circle at top, rgba(148, 255, 102, 0.12), transparent 30%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      #mosh-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        image-rendering: pixelated;
+      }
+
+      .preview-overlay {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 12px;
+        pointer-events: none;
+      }
+
+      .overlay-label {
+        padding: 9px 12px 8px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 0.62rem;
+        letter-spacing: 0.12rem;
+        text-transform: uppercase;
+      }
+
+      .overlay-label.pixel {
+        font-family: "Press Start 2P", cursive;
+        font-size: 0.56rem;
+        color: var(--acid);
+      }
+
+      .actions {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .button,
+      .file-button {
+        position: relative;
+        display: inline-flex;
+        min-height: 54px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 14px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: linear-gradient(180deg, rgba(33, 48, 34, 0.96), rgba(13, 16, 14, 0.96));
+        color: #fff;
+        font: inherit;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12rem;
+        cursor: pointer;
+        overflow: hidden;
+        transition:
+          transform 160ms ease,
+          border-color 160ms ease,
+          box-shadow 160ms ease,
+          opacity 160ms ease;
+        box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.04);
+      }
+
+      .button::before,
+      .file-button::before {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(148, 255, 102, 0.15), rgba(255, 81, 81, 0.14));
+        opacity: 0.42;
+      }
+
+      .button span,
+      .file-button span {
+        position: relative;
+        z-index: 1;
+      }
+
+      .button:hover,
+      .file-button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(148, 255, 102, 0.34);
+        box-shadow:
+          0 0 18px rgba(148, 255, 102, 0.16),
+          0 0 18px rgba(255, 81, 81, 0.12);
+      }
+
+      .button:disabled {
+        opacity: 0.45;
+        cursor: progress;
+        transform: none;
+      }
+
+      input[type="file"] {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .video-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .clip-card {
+        padding: 14px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .clip-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .clip-card h3 {
+        margin: 0;
+        font-size: 0.78rem;
+        letter-spacing: 0.14rem;
+        text-transform: uppercase;
+      }
+
+      .signal {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: #4b1616;
+        box-shadow: 0 0 0 transparent;
+      }
+
+      .signal.ready {
+        background: #8eff6a;
+        box-shadow: 0 0 12px rgba(142, 255, 106, 0.55);
+      }
+
+      .clip-meta {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.7rem;
+        letter-spacing: 0.06rem;
+      }
+
+      .slider-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .slider-row {
+        display: grid;
+        grid-template-columns: 148px 1fr 70px;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .slider-row label {
+        font-size: 0.72rem;
+        letter-spacing: 0.12rem;
+        text-transform: uppercase;
+      }
+
+      .slider-row output {
+        justify-self: end;
+        color: var(--green);
+        font-size: 0.76rem;
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(148, 255, 102, 0.88), rgba(255, 81, 81, 0.78));
+        outline: none;
+        box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.35);
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        background: #050706;
+        cursor: pointer;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        background: #050706;
+        cursor: pointer;
+      }
+
+      .status {
+        margin-top: 16px;
+        min-height: 1.4em;
+        color: #f2fff1;
+        font-size: 0.76rem;
+        letter-spacing: 0.05rem;
+      }
+
+      .hidden-video {
+        display: none;
+      }
+
+      @media (max-width: 1080px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          padding: 12px;
+        }
+
+        .hero-note {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          grid-template-columns: 1fr;
+        }
+
+        .slider-row {
+          grid-template-columns: 1fr;
+        }
+
+        .slider-row output {
+          justify-self: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="shell">
+        <header class="hero">
+          <div class="hero-top">
+            <div class="title-block">
+              <h1>DATAMOSH</h1>
+              <p>Transition lab for smashed motion vectors and melted cuts</p>
+            </div>
+
+            <nav class="mode-tabs" aria-label="Modes">
+              <a class="mode-tab" href="./index.html">CRT VIDEO</a>
+              <a class="mode-tab active" href="./datamosh.html">DATAMOSH</a>
+              <a class="mode-tab" href="./datamosh-v2.html">DATAMOSHER V2</a>
+              <a class="mode-tab" href="./datamosh-v3.html">DATAMOSH V3</a>
+              <a class="mode-tab" href="./datamosh-v4.html">DATAMOSH V4</a>
+              <a class="mode-tab" href="./datamosh-v5.html">DATAMOSH V5</a>
+              <a class="mode-tab" href="./datamosh-v6.html">DATAMOSH V6</a>
+              <a class="mode-tab" href="./datamosh-video.html">DATAMOSH VIDEO</a>
+              <a class="mode-tab" href="./blobtransition.html">BLOBTRANSITION V1</a>
+              <a class="mode-tab" href="./crtimage.html">CRT IMAGE</a>
+            </nav>
+          </div>
+
+          <div class="hero-note">
+            <div class="note-card">
+              <strong>Browser Mosh</strong>
+              <span>This page rebuilds the cut from stale blocks, broken motion, delayed refresh, and chroma corruption.</span>
+            </div>
+            <div class="note-card">
+              <strong>Two-Clip Flow</strong>
+              <span>The last frame of clip A is held, then clip B motion chews through it without a clean opening refresh.</span>
+            </div>
+            <div class="note-card">
+              <strong>Export</strong>
+              <span>Records the canvas as a playable WebM. Keep inputs under 20 seconds for stable playback.</span>
+            </div>
+          </div>
+        </header>
+
+        <main class="grid">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Preview</h2>
+              <span class="tag">Live Canvas</span>
+            </div>
+
+            <div class="preview-wrap">
+              <canvas id="mosh-canvas" width="960" height="540"></canvas>
+              <div class="preview-overlay">
+                <div class="overlay-label" id="timeline-label">Load two clips to begin</div>
+                <div class="overlay-label pixel">DATAMOSH</div>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button class="button" id="preview-button" type="button"><span>Preview Transition</span></button>
+              <button class="button" id="stop-button" type="button"><span>Stop</span></button>
+              <button class="button" id="export-button" type="button"><span>Export WebM</span></button>
+            </div>
+
+            <div class="status" id="status-text">Load clip A and clip B, then set the transition cut points.</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Controls</h2>
+              <span class="tag">Gremlin Mode</span>
+            </div>
+
+            <div class="video-grid">
+              <div class="clip-card">
+                <div class="clip-head">
+                  <h3>Clip A</h3>
+                  <span class="signal" id="video-a-light" aria-hidden="true"></span>
+                </div>
+                <label class="file-button" for="video-a-input"><span>Upload Video A</span></label>
+                <input id="video-a-input" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" />
+                <div class="clip-meta" id="video-a-meta">No file loaded.</div>
+              </div>
+
+              <div class="clip-card">
+                <div class="clip-head">
+                  <h3>Clip B</h3>
+                  <span class="signal" id="video-b-light" aria-hidden="true"></span>
+                </div>
+                <label class="file-button" for="video-b-input"><span>Upload Video B</span></label>
+                <input id="video-b-input" type="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" />
+                <div class="clip-meta" id="video-b-meta">No file loaded.</div>
+              </div>
+            </div>
+
+            <div class="slider-grid" style="margin-top: 16px;">
+              <div class="slider-row">
+                <label for="clip-a-end">Clip A End</label>
+                <input id="clip-a-end" type="range" min="0" max="10" step="0.01" value="1.63" />
+                <output id="clip-a-end-output">1.63s</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="clip-b-start">Clip B Start</label>
+                <input id="clip-b-start" type="range" min="0" max="10" step="0.01" value="6.03" />
+                <output id="clip-b-start-output">6.03s</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="transition-duration">Mosh Duration</label>
+                <input id="transition-duration" type="range" min="0.4" max="4" step="0.01" value="2.5" />
+                <output id="transition-duration-output">2.50s</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="mosh-amount">Mosh Strength</label>
+                <input id="mosh-amount" type="range" min="0.1" max="1.5" step="0.01" value="0.9" />
+                <output id="mosh-amount-output">0.90</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="block-size">Block Size</label>
+                <input id="block-size" type="range" min="8" max="40" step="2" value="16" />
+                <output id="block-size-output">16px</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="frame-hold">Block Persistence</label>
+                <input id="frame-hold" type="range" min="1" max="24" step="1" value="12" />
+                <output id="frame-hold-output">12f</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="refresh-failure">Refresh Failure</label>
+                <input id="refresh-failure" type="range" min="0.05" max="1" step="0.01" value="0.92" />
+                <output id="refresh-failure-output">92%</output>
+              </div>
+
+              <div class="slider-row">
+                <label for="motion-smear">Motion Drag</label>
+                <input id="motion-smear" type="range" min="0" max="1.5" step="0.01" value="1.2" />
+                <output id="motion-smear-output">1.20</output>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <video id="video-a" class="hidden-video" playsinline muted crossorigin="anonymous"></video>
+        <video id="video-b" class="hidden-video" playsinline muted crossorigin="anonymous"></video>
+      </div>
+    </div>
+
+    <script src="./analytics-config.js"></script>
+    <script type="module">
+      import "./analytics.js";
+    </script>
+    <script src="./mode-nav.js"></script>
+    <script type="module" src="./datamosh.js"></script>
+  </body>
+</html>

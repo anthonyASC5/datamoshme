@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRT WRLD VIDEO</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Special+Elite&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --line: #111111;
+        --line-soft: #d5d5d5;
+        --text: #111111;
+        --muted: #666666;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #ffffff;
+        color: var(--text);
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .page {
+        min-height: 100vh;
+        padding: 18px;
+      }
+
+      .shell {
+        max-width: 1480px;
+        margin: 0 auto;
+        border: 1px solid var(--line);
+        background: #ffffff;
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: #ffffff;
+      }
+
+      .titlebar-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .titlebar h1 {
+        margin: 0;
+        font-family: "Special Elite", monospace;
+        font-size: clamp(1rem, 2vw, 1.35rem);
+        letter-spacing: 0.08rem;
+      }
+
+      .titlebar-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border: 1px solid #111111;
+        background: #ffffff;
+        color: #111111;
+        font: inherit;
+        font-size: 0.88rem;
+        cursor: pointer;
+      }
+
+      .mode-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .mode-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 8px 12px 6px;
+        border: 1px solid var(--line);
+        color: var(--text);
+        text-decoration: none;
+        font-size: 0.62rem;
+        letter-spacing: 0.08rem;
+        text-transform: uppercase;
+        background: #ffffff;
+      }
+
+      .mode-tab.pixel {
+        font-family: "IBM Plex Mono", monospace;
+      }
+
+      .mode-tab.active {
+        background: #111111;
+        color: #ffffff;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(320px, 0.56fr) minmax(0, 1.5fr) minmax(380px, 0.7fr);
+      }
+
+      .sidebar-panel,
+      .control-panel {
+        padding: 12px;
+      }
+
+      .sidebar-panel {
+        border-right: 1px solid var(--line);
+      }
+
+      .stage-panel {
+        padding: 16px;
+        border-right: 1px solid var(--line);
+      }
+
+      #player-shell {
+        border: 1px solid var(--line);
+        background: #000;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+      }
+
+      #video-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .stage-copy {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .copy-box {
+        min-height: 72px;
+        border: 1px solid var(--line-soft);
+        padding: 12px;
+        background: #fafafa;
+      }
+
+      .copy-box strong {
+        display: block;
+        margin-bottom: 8px;
+        font-family: "Special Elite", monospace;
+        font-size: 0.72rem;
+        line-height: 1.5;
+        color: #111111;
+      }
+
+      .copy-box span {
+        color: var(--muted);
+        font-size: 0.7rem;
+        letter-spacing: 0.05rem;
+      }
+
+      .panel-group {
+        border: 1px solid var(--line);
+        margin-bottom: 14px;
+        background: #ffffff;
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        background: #fafafa;
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-family: "Special Elite", monospace;
+        font-size: 0.88rem;
+        letter-spacing: 0.08rem;
+      }
+
+      .panel-head span {
+        color: var(--muted);
+        font-size: 0.64rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08rem;
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      .panel-group.collapsed .panel-body {
+        display: none;
+      }
+
+      .panel-head[data-collapsible] {
+        cursor: pointer;
+      }
+
+      .panel-head-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .hud-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: var(--text);
+        font: inherit;
+        font-size: 0.8rem;
+        line-height: 1;
+        cursor: pointer;
+        flex: 0 0 auto;
+      }
+
+      .panel-group.collapsed .hud-toggle {
+        transform: rotate(-90deg);
+      }
+
+      .button-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .button-grid.compact {
+        grid-template-columns: 1fr;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: var(--text);
+        font: inherit;
+        font-size: 0.74rem;
+        letter-spacing: 0.12rem;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .button:disabled {
+        opacity: 0.5;
+        cursor: progress;
+      }
+
+      #video-input,
+      #video-source {
+        display: none;
+      }
+
+      .meta,
+      .status {
+        margin-top: 12px;
+        font-size: 0.68rem;
+        letter-spacing: 0.05rem;
+        color: var(--muted);
+      }
+
+      .status {
+        min-height: 1.4em;
+        color: var(--text);
+      }
+
+      .slider-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .slider-row {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr) 54px;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .slider-row > * {
+        min-width: 0;
+      }
+
+      .slider-row label {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.62rem;
+        line-height: 1.4;
+        text-transform: uppercase;
+        letter-spacing: 0.03rem;
+      }
+
+      .slider-row output {
+        width: 54px;
+        justify-self: end;
+        text-align: right;
+        color: var(--text);
+        font-size: 0.7rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        display: block;
+        width: 100%;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        justify-self: stretch;
+        align-self: center;
+        height: 18px;
+        background: transparent;
+        outline: none;
+      }
+
+      input[type="range"]::-webkit-slider-runnable-track {
+        height: 2px;
+        background: #111111;
+      }
+
+      input[type="range"].touched::-webkit-slider-runnable-track {
+        background: #d62828;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 12px;
+        height: 12px;
+        border: 1px solid #111111;
+        border-radius: 0;
+        background: #ffffff;
+        cursor: pointer;
+        margin-top: -5px;
+      }
+
+      input[type="range"]::-moz-range-track {
+        height: 2px;
+        background: #111111;
+      }
+
+      input[type="range"].touched::-moz-range-track {
+        background: #d62828;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        border: 1px solid #111111;
+        border-radius: 0;
+        background: #ffffff;
+        cursor: pointer;
+      }
+
+      select.touched,
+      .toggle-check.touched {
+        border-color: #d62828;
+        color: #d62828;
+      }
+
+      .slider-toggle {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .toggle-check {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: #d62828;
+      }
+
+      .preset-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .button.active,
+      .preset-button.active {
+        background: #111111;
+        color: #ffffff;
+        box-shadow: none;
+      }
+
+      .preset-button[data-add-layer="crt"] {
+        border-color: #7447ff;
+        color: #7447ff;
+      }
+
+      .preset-button[data-add-layer="blu"] {
+        border-color: #0b63ff;
+        color: #0b63ff;
+      }
+
+      .preset-button[data-add-layer="cluster"] {
+        border-color: #d62828;
+        color: #d62828;
+      }
+
+      .preset-button[data-add-layer="clusterOnly"] {
+        border-color: #ff5a36;
+        color: #ff5a36;
+      }
+
+      .preset-button[data-add-layer="clusterTrack"] {
+        border-color: #7fdcbe;
+        color: #7fdcbe;
+      }
+
+      .preset-button[data-add-layer="monitor"] {
+        border-color: #57d66b;
+        color: #57d66b;
+      }
+
+      .preset-panel {
+        margin-top: 12px;
+        border: 1px solid var(--line-soft);
+        padding: 12px;
+        background: #fafafa;
+      }
+
+      .layer-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .layer-empty {
+        color: var(--muted);
+        font-size: 0.68rem;
+        letter-spacing: 0.05rem;
+      }
+
+      .layer-row-card {
+        border: 1px solid var(--line-soft);
+        background: #ffffff;
+        padding: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .layer-row-card.selected {
+        border-color: #111111;
+        box-shadow: inset 0 0 0 1px #111111;
+      }
+
+      .layer-row-card[data-layer-type="video"] .layer-name,
+      .layer-row-card[data-layer-type="video"] .layer-type {
+        color: #111111;
+      }
+
+      .layer-row-card[data-layer-type="crt"] .layer-name,
+      .layer-row-card[data-layer-type="crt"] .layer-type {
+        color: #7447ff;
+      }
+
+      .layer-row-card[data-layer-type="crt"] {
+        background: rgba(116, 71, 255, 0.05);
+      }
+
+      .layer-row-card[data-layer-type="black"] .layer-name,
+      .layer-row-card[data-layer-type="black"] .layer-type {
+        color: #111111;
+      }
+
+      .layer-row-card[data-layer-type="blu"] .layer-name,
+      .layer-row-card[data-layer-type="blu"] .layer-type {
+        color: #0b63ff;
+      }
+
+      .layer-row-card[data-layer-type="blu"] {
+        background: rgba(11, 99, 255, 0.05);
+      }
+
+      .layer-row-card[data-layer-type="cluster"] .layer-name,
+      .layer-row-card[data-layer-type="cluster"] .layer-type {
+        color: #d62828;
+      }
+
+      .layer-row-card[data-layer-type="cluster"] {
+        background: rgba(214, 40, 40, 0.05);
+      }
+
+      .layer-row-card[data-layer-type="clusterOnly"] .layer-name,
+      .layer-row-card[data-layer-type="clusterOnly"] .layer-type {
+        color: #ff5a36;
+      }
+
+      .layer-row-card[data-layer-type="clusterOnly"] {
+        background: rgba(255, 90, 54, 0.08);
+      }
+
+      .layer-row-card[data-layer-type="monitor"] .layer-name,
+      .layer-row-card[data-layer-type="monitor"] .layer-type {
+        color: #57d66b;
+      }
+
+      .layer-row-card[data-layer-type="monitor"] {
+        background: rgba(87, 214, 107, 0.08);
+      }
+
+      .layer-row-card[data-layer-type="clusterTrack"] .layer-name,
+      .layer-row-card[data-layer-type="clusterTrack"] .layer-type {
+        color: #7fdcbe;
+      }
+
+      .layer-row-card[data-layer-type="clusterTrack"] {
+        background: rgba(127, 220, 190, 0.09);
+      }
+
+      .layer-row-card[data-layer-type="editor"] .layer-name,
+      .layer-row-card[data-layer-type="editor"] .layer-type {
+        color: #111111;
+      }
+
+      .layer-topline {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: flex-start;
+      }
+
+      .layer-name {
+        font-family: "Special Elite", monospace;
+        font-size: 0.72rem;
+        line-height: 1.4;
+        text-transform: uppercase;
+      }
+
+      .layer-type {
+        color: var(--muted);
+        font-size: 0.6rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08rem;
+      }
+
+      .layer-actions {
+        display: flex;
+        gap: 4px;
+        flex-wrap: nowrap;
+      }
+
+      .mini-button {
+        min-height: 26px;
+        min-width: 26px;
+        padding: 3px 6px;
+        border: 1px solid var(--line-soft);
+        background: #ffffff;
+        color: var(--text);
+        font: inherit;
+        font-size: 0.66rem;
+        letter-spacing: 0.03rem;
+        cursor: pointer;
+      }
+
+      .mini-button.active {
+        border-color: #111111;
+        background: #111111;
+        color: #ffffff;
+      }
+
+      .layer-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .layer-inline-panel {
+        border-top: 1px solid var(--line-soft);
+        padding-top: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .layer-inline-row {
+        display: grid;
+        grid-template-columns: 92px 1fr;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .layer-inline-row label {
+        color: var(--muted);
+        font-size: 0.56rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08rem;
+      }
+
+      .layer-inline-control {
+        display: grid;
+        grid-template-columns: 1fr 42px;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .layer-inline-control output {
+        text-align: right;
+      }
+
+      .layer-inline-toggle {
+        grid-template-columns: 18px 42px;
+        justify-content: end;
+      }
+
+      .layer-field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .layer-field label {
+        color: var(--muted);
+        font-size: 0.56rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08rem;
+      }
+
+      .layer-opacity {
+        display: grid;
+        grid-template-columns: 1fr 52px;
+        gap: 8px;
+        align-items: center;
+      }
+
+      select {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid var(--line-soft);
+        background: #ffffff;
+        color: var(--text);
+        font: inherit;
+        padding: 0 8px;
+      }
+
+      @media (max-width: 1080px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar-panel {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .stage-panel {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          padding: 10px;
+        }
+
+        .stage-copy {
+          grid-template-columns: 1fr;
+        }
+
+        .slider-row {
+          grid-template-columns: 1fr;
+        }
+
+        .slider-row output {
+          justify-self: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="shell">
+        <header class="titlebar">
+          <div class="titlebar-main">
+            <h1>CRT WRLD VIDEO</h1>
+            <div class="titlebar-actions" aria-label="Transport">
+              <button class="icon-button" id="header-play-button" type="button" aria-label="Play">▶</button>
+              <button class="icon-button" id="header-stop-button" type="button" aria-label="Stop">■</button>
+              <button class="icon-button" id="header-reverse-button" type="button" aria-label="Reverse">◀</button>
+              <button class="icon-button" id="header-reset-button" type="button" aria-label="Reset Effects">↺</button>
+            </div>
+          </div>
+          <nav class="mode-tabs" aria-label="Modes">
+            <a class="mode-tab active" href="./index.html">CRT Video</a>
+            <a class="mode-tab pixel" href="./datamosh.html">DATAMOSH</a>
+            <a class="mode-tab pixel" href="./datamosh-v2.html">Datamosher V2</a>
+            <a class="mode-tab pixel" href="./datamosh-v3.html">Datamosh V3</a>
+            <a class="mode-tab pixel" href="./datamosh-v4.html">Datamosh V4</a>
+            <a class="mode-tab pixel" href="./datamosh-v5.html">Datamosh V5</a>
+            <a class="mode-tab pixel" href="./datamosh-v6.html">Datamosh V6</a>
+            <a class="mode-tab pixel" href="./datamosh-video.html">Datamosh Video</a>
+            <a class="mode-tab pixel" href="./blobtransition.html">BlobTransition v1</a>
+            <a class="mode-tab" href="./crtimage.html">CRT Image</a>
+          </nav>
+        </header>
+
+        <main class="layout">
+          <aside class="sidebar-panel">
+            <section class="panel-group collapsed" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Video Editor HUD">▾</button>
+                  <h2>Video Editor</h2>
+                </div>
+                <span id="editor-selection-label">Editor Layer</span>
+              </div>
+              <div class="panel-body">
+                <div class="preset-panel" id="editor-panel">
+                  <div class="slider-grid" id="editor-controls">
+                    <div class="slider-row">
+                      <label for="brightness-slider">Brightness</label>
+                      <input id="brightness-slider" type="range" min="-0.5" max="0.5" step="0.01" value="0.00" />
+                      <output id="brightness-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="contrast-slider">Contrast</label>
+                      <input id="contrast-slider" type="range" min="0.4" max="1.8" step="0.01" value="1.00" />
+                      <output id="contrast-output">1.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="highlights-slider">Highlights</label>
+                      <input id="highlights-slider" type="range" min="-1" max="1" step="0.01" value="0.00" />
+                      <output id="highlights-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="shadows-slider">Shadows</label>
+                      <input id="shadows-slider" type="range" min="-1" max="1" step="0.01" value="0.00" />
+                      <output id="shadows-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="sharpness-slider">Sharpness</label>
+                      <input id="sharpness-slider" type="range" min="0" max="2" step="0.01" value="0.35" />
+                      <output id="sharpness-output">0.35</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="echo-frames-slider">Echo Frames</label>
+                      <input id="echo-frames-slider" type="range" min="0" max="1" step="0.01" value="0.00" />
+                      <output id="echo-frames-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="editor-edge-glow-slider">Edge Glow</label>
+                      <input id="editor-edge-glow-slider" type="range" min="0" max="1.5" step="0.01" value="0.00" />
+                      <output id="editor-edge-glow-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="crt-glow-slider">CRT Glow</label>
+                      <input id="crt-glow-slider" type="range" min="0" max="1.5" step="0.01" value="0.00" />
+                      <output id="crt-glow-output">0.00</output>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel-group collapsed" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Layers HUD">▾</button>
+                  <h2>Layers</h2>
+                </div>
+                <span>Composite Stack</span>
+              </div>
+              <div class="panel-body">
+                <div class="layer-list" id="layers-list"></div>
+                <div class="layer-empty" id="layers-empty">Upload a video to create the base layer, then add effect layers above it.</div>
+              </div>
+            </section>
+          </aside>
+
+          <section class="stage-panel">
+            <div id="player-shell">
+              <canvas id="video-canvas" width="1280" height="720"></canvas>
+            </div>
+
+            <div class="stage-copy">
+              <div class="copy-box">
+                <strong>FLAT PLAYER</strong>
+                <span>The video now renders as a clean, flat rectangle with no 3D hover, tilt, or vignette wash.</span>
+              </div>
+              <div class="copy-box">
+                <strong>BLACK DATA</strong>
+                <span>Preset mode turns the clip into an inverted monochrome, edge-etched, high-grain corruption pass.</span>
+              </div>
+            </div>
+          </section>
+
+          <aside class="control-panel">
+            <section class="panel-group collapsed" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Input HUD">▾</button>
+                  <h2>Input</h2>
+                </div>
+                <span>Video Upload</span>
+              </div>
+              <div class="panel-body">
+                <div class="button-grid">
+                  <button class="button" id="upload-button" type="button">Upload Video</button>
+                  <button class="button" id="play-button" type="button">Play / Pause</button>
+                  <button class="button" id="split-button" type="button">Split Screen</button>
+                  <button class="button" id="export-button" type="button">Export Loop</button>
+                </div>
+
+                <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
+                <video id="video-source" playsinline loop muted crossorigin="anonymous"></video>
+
+                <div class="meta" id="file-name">No file loaded.</div>
+                <div class="status" id="status-text">Ready. Upload a video for flat playback and export.</div>
+              </div>
+            </section>
+
+            <section class="panel-group collapsed" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Tuning HUD">▾</button>
+                  <h2>Effects</h2>
+                </div>
+                <span id="layer-selection-label">Effects</span>
+              </div>
+              <div class="panel-body">
+                <div class="panel-head" style="padding: 0 0 10px; border: 0; background: transparent;">
+                  <h2>Add Layer</h2>
+                  <span>Effects</span>
+                </div>
+                <div class="preset-grid">
+                  <button class="button preset-button" data-add-layer="crt" type="button">CRT Pass</button>
+                  <button class="button preset-button" data-add-layer="monitor" type="button">CRT Monitor</button>
+                  <button class="button preset-button" data-add-layer="black" type="button">Black Data</button>
+                  <button class="button preset-button" data-add-layer="blu" type="button">BLU</button>
+                  <button class="button preset-button" data-add-layer="cluster" type="button">Cluster Edge Tracker</button>
+                  <button class="button preset-button" data-add-layer="clusterOnly" type="button">Cluster Only</button>
+                  <button class="button preset-button" data-add-layer="clusterTrack" type="button">Full Cluster Track</button>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </main>
+      </div>
+    </div>
+
+    <script src="./analytics-config.js"></script>
+    <script src="./mode-nav.js"></script>
+    <script type="module" src="./crtvideo.js"></script>
+  </body>
+</html>

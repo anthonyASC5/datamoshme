@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DATAMOSHER V2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --line: rgba(103, 255, 212, 0.38);
+        --line-soft: rgba(103, 255, 212, 0.16);
+        --text: #ecfef9;
+        --muted: #8ea79f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top, rgba(103, 255, 212, 0.14), transparent 28%),
+          radial-gradient(circle at 82% 18%, rgba(255, 134, 108, 0.12), transparent 22%),
+          linear-gradient(180deg, #05070c, #020304 58%, #000 100%);
+        color: var(--text);
+        font-family: "Orbitron", sans-serif;
+      }
+
+      .page {
+        min-height: 100vh;
+        padding: 18px;
+      }
+
+      .shell {
+        max-width: 1480px;
+        margin: 0 auto;
+        border: 2px solid var(--line);
+        background: linear-gradient(180deg, rgba(5, 9, 15, 0.96), rgba(2, 4, 8, 0.98));
+        box-shadow:
+          0 0 42px rgba(30, 255, 182, 0.08),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 2px solid var(--line);
+        background: rgba(56, 255, 199, 0.06);
+      }
+
+      .titlebar h1 {
+        margin: 0;
+        font-family: "Press Start 2P", cursive;
+        font-size: clamp(0.82rem, 1.9vw, 1.14rem);
+        letter-spacing: 0.1rem;
+        line-height: 1.5;
+      }
+
+      .mode-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .mode-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 8px 12px 6px;
+        border: 1px solid var(--line);
+        color: var(--text);
+        text-decoration: none;
+        font-size: 0.56rem;
+        letter-spacing: 0.08rem;
+        text-transform: uppercase;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .mode-tab.pixel {
+        font-family: "Press Start 2P", cursive;
+      }
+
+      .mode-tab.active {
+        background: linear-gradient(180deg, rgba(103, 255, 212, 0.15), rgba(255, 134, 108, 0.1));
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
+      }
+
+      .stage-panel {
+        padding: 16px;
+        border-right: 2px solid var(--line);
+      }
+
+      .stage-shell {
+        position: relative;
+        border: 2px solid var(--line);
+        background: #000;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+      }
+
+      #moshCanvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        image-rendering: pixelated;
+      }
+
+      .overlay {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        pointer-events: none;
+      }
+
+      .pill {
+        padding: 8px 12px 7px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.48);
+        font-size: 0.62rem;
+        letter-spacing: 0.11rem;
+        text-transform: uppercase;
+      }
+
+      .pill.pixel {
+        font-family: "Press Start 2P", cursive;
+        color: #67ffd4;
+      }
+
+      .stage-copy {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .copy-box {
+        min-height: 72px;
+        border: 1px solid var(--line-soft);
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .copy-box strong {
+        display: block;
+        margin-bottom: 8px;
+        font-family: "Press Start 2P", cursive;
+        font-size: 0.44rem;
+        line-height: 1.8;
+        color: #9efbe0;
+      }
+
+      .copy-box span {
+        color: var(--muted);
+        font-size: 0.69rem;
+        letter-spacing: 0.05rem;
+      }
+
+      .control-panel {
+        padding: 12px;
+      }
+
+      .panel-group {
+        border: 1px solid var(--line);
+        margin-bottom: 14px;
+        background: rgba(255, 255, 255, 0.018);
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(103, 255, 212, 0.06);
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-family: "Press Start 2P", cursive;
+        font-size: 0.5rem;
+        letter-spacing: 0.08rem;
+      }
+
+      .panel-head span {
+        color: var(--muted);
+        font-size: 0.64rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08rem;
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      .button-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(76, 152, 132, 0.18), rgba(18, 43, 37, 0.32));
+        color: #fff;
+        font: inherit;
+        font-size: 0.74rem;
+        letter-spacing: 0.12rem;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+
+      .button:disabled {
+        opacity: 0.45;
+        cursor: progress;
+      }
+
+      .clip-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      #video-a-input,
+      #video-b-input,
+      #video-a,
+      #video-b,
+      #analysis-canvas {
+        display: none;
+      }
+
+      .meta,
+      .status,
+      .stats {
+        margin-top: 12px;
+        font-size: 0.68rem;
+        letter-spacing: 0.05rem;
+        color: var(--muted);
+      }
+
+      .status {
+        min-height: 1.4em;
+        color: var(--text);
+      }
+
+      .stats {
+        display: grid;
+        gap: 8px;
+      }
+
+      .slider-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .slider-row {
+        display: grid;
+        grid-template-columns: 132px 1fr 62px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .slider-row label {
+        font-family: "Press Start 2P", cursive;
+        font-size: 0.42rem;
+        line-height: 1.8;
+        text-transform: uppercase;
+      }
+
+      .slider-row output {
+        justify-self: end;
+        color: #aef9e5;
+        font-size: 0.74rem;
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.09);
+        outline: none;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: linear-gradient(180deg, #67ffd4, #fff);
+        border: 1px solid rgba(0, 0, 0, 0.48);
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: linear-gradient(180deg, #67ffd4, #fff);
+        border: 1px solid rgba(0, 0, 0, 0.48);
+      }
+
+      @media (max-width: 1080px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .stage-panel {
+          border-right: 0;
+          border-bottom: 2px solid var(--line);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          padding: 10px;
+        }
+
+        .stage-copy,
+        .clip-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .slider-row {
+          grid-template-columns: 1fr;
+        }
+
+        .slider-row output {
+          justify-self: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="shell">
+        <header class="titlebar">
+          <h1>CRT WRLD // DATAMOSHER V2</h1>
+          <nav class="mode-tabs" aria-label="Modes">
+            <a class="mode-tab" href="./index.html">CRT Video</a>
+            <a class="mode-tab pixel" href="./datamosh.html">DATAMOSH</a>
+            <a class="mode-tab pixel active" href="./datamosh-v2.html">Datamosher V2</a>
+            <a class="mode-tab pixel" href="./datamosh-v3.html">Datamosh V3</a>
+            <a class="mode-tab pixel" href="./datamosh-v4.html">Datamosh V4</a>
+            <a class="mode-tab pixel" href="./datamosh-v5.html">Datamosh V5</a>
+            <a class="mode-tab pixel" href="./datamosh-v6.html">Datamosh V6</a>
+            <a class="mode-tab pixel" href="./datamosh-video.html">Datamosh Video</a>
+            <a class="mode-tab pixel" href="./blobtransition.html">BlobTransition v1</a>
+            <a class="mode-tab" href="./crtimage.html">CRT Image</a>
+          </nav>
+        </header>
+
+        <main class="layout">
+          <section class="stage-panel">
+            <div class="stage-shell">
+              <canvas id="moshCanvas" width="960" height="540"></canvas>
+              <div class="overlay">
+                <div class="pill pixel">P-Dupe Datamosh</div>
+                <div class="pill" id="timeline-label">Load two clips to begin</div>
+              </div>
+            </div>
+
+            <div class="stage-copy">
+              <div class="copy-box">
+                <strong>V2 Engine</strong>
+                <span>Clip A acts like the held reference frame, while clip B contributes repeated delta motion. Instead of a clean reveal, V2 duplicates motion bursts so the image smears, stalls, and drags like a P-frame dupe.</span>
+              </div>
+              <div class="copy-box">
+                <strong>Mosh Logic</strong>
+                <span>Every n frames, V2 duplicates a short run of clip B motion multiple times. Color bleed stays limited so the output behaves more like datamoshing than a stylized transition.</span>
+              </div>
+            </div>
+          </section>
+
+          <aside class="control-panel">
+            <section class="panel-group">
+              <div class="panel-head">
+                <h2>Transport</h2>
+                <span>Two Inputs</span>
+              </div>
+              <div class="panel-body">
+                <div class="clip-grid">
+                  <button class="button" id="upload-a-button" type="button">Upload Clip A</button>
+                  <button class="button" id="upload-b-button" type="button">Upload Clip B</button>
+                </div>
+                <div class="button-grid" style="margin-top: 10px;">
+                  <button class="button" id="play-button" type="button">Play / Pause</button>
+                  <button class="button" id="export-button" type="button">Export Mosh</button>
+                </div>
+                <input id="video-a-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" />
+                <input id="video-b-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" />
+                <div class="meta" id="video-a-meta">Clip A not loaded.</div>
+                <div class="meta" id="video-b-meta">Clip B not loaded.</div>
+                <div class="status" id="status-text">Waiting for two source videos.</div>
+                <div class="stats" id="stats-text">
+                  <span>Duped frames: 0</span>
+                  <span>Avg motion: 0.00 px</span>
+                  <span>Bleed mix: 0%</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel-group">
+              <div class="panel-head">
+                <h2>Cut Point</h2>
+                <span>Auto Mosh</span>
+              </div>
+              <div class="panel-body">
+                <div class="slider-grid">
+                  <div class="slider-row">
+                    <label for="clip-a-end">Clip A End</label>
+                    <input id="clip-a-end" type="range" min="0.05" max="8" step="0.01" value="2.00" />
+                    <output id="clip-a-end-output">2.00s</output>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel-group">
+              <div class="panel-head">
+                <h2>Mosh Controls</h2>
+                <span>P-Dupe / P-Pulse</span>
+              </div>
+              <div class="panel-body">
+                <div class="slider-grid">
+                  <div class="slider-row">
+                    <label for="flow-strength">Drift Strength</label>
+                    <input id="flow-strength" type="range" min="0" max="100" value="74" />
+                    <output id="flow-strength-output">74%</output>
+                  </div>
+                  <div class="slider-row">
+                    <label for="trail-decay">Dupe Amount</label>
+                    <input id="trail-decay" type="range" min="1" max="12" step="1" value="5" />
+                    <output id="trail-decay-output">5x</output>
+                  </div>
+                  <div class="slider-row">
+                    <label for="hue-transfer">Pulse Every</label>
+                    <input id="hue-transfer" type="range" min="1" max="24" step="1" value="6" />
+                    <output id="hue-transfer-output">6f</output>
+                  </div>
+                  <div class="slider-row">
+                    <label for="flow-resolution">Pulse Length</label>
+                    <input id="flow-resolution" type="range" min="1" max="8" step="1" value="2" />
+                    <output id="flow-resolution-output">2f</output>
+                  </div>
+                  <div class="slider-row">
+                    <label for="color-bleed">Color Bleed</label>
+                    <input id="color-bleed" type="range" min="0" max="100" value="18" />
+                    <output id="color-bleed-output">18%</output>
+                  </div>
+                  <div class="slider-row">
+                    <label for="block-resolution">Block Resolution</label>
+                    <input id="block-resolution" type="range" min="8" max="36" step="2" value="16" />
+                    <output id="block-resolution-output">16 px</output>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </main>
+      </div>
+    </div>
+
+    <video id="video-a" muted playsinline preload="auto" crossorigin="anonymous"></video>
+    <video id="video-b" muted playsinline preload="auto" crossorigin="anonymous"></video>
+    <canvas id="analysis-canvas" width="960" height="540"></canvas>
+    <script src="./mode-nav.js"></script>
+    <script type="module" src="./datamosh-v2.js"></script>
+  </body>
+</html>
