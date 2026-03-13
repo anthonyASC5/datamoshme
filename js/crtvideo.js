@@ -44,6 +44,30 @@ const BLEND_MODE_MAP = {
   exclusion: "exclusion",
   subtract: "subtract",
 };
+const FILTER_JS_SCRIPT_URLS = Object.freeze([
+  "https://cdn.jsdelivr.net/gh/foo123/FILTER.js@1.13.0/build/filter.min.js",
+  "https://cdn.jsdelivr.net/gh/foo123/FILTER.js/build/filter.min.js",
+  "https://rawcdn.githack.com/foo123/FILTER.js/master/build/filter.min.js",
+]);
+const EDITOR_EXTRA_EFFECT_CONFIG = Object.freeze([
+  { key: "halftone", label: "Halftone", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+  { key: "solarize", label: "Solarize", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+  { key: "redChannel", label: "Red Channel", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+  { key: "cmyColorSpace", label: "CMY Space", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+  { key: "hueGreyscale", label: "Hue Gray", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+  { key: "hueConnectedComponents", label: "Hue CCA", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+  { key: "hueConnectedContours", label: "CCA Contours", min: 0, max: 1, step: 0.01, defaultValue: 0 },
+]);
+const EDITOR_EXTRA_DEFAULTS = Object.freeze(
+  Object.fromEntries(EDITOR_EXTRA_EFFECT_CONFIG.map((entry) => [entry.key, entry.defaultValue])),
+);
+const EDITOR_WEBGL_EFFECT_KEYS = new Set([
+  "halftone",
+  "solarize",
+  "redChannel",
+  "cmyColorSpace",
+  "hueGreyscale",
+]);
 const fileInput = document.getElementById("video-input");
 const sourceVideo = document.getElementById("video-source");
 const canvas = document.getElementById("video-canvas");
@@ -89,6 +113,9 @@ const crtGlowOutput = document.getElementById("crt-glow-output");
 
 const editorPanel = document.getElementById("editor-panel");
 const editorControls = document.getElementById("editor-controls");
+document.querySelectorAll('[data-add-layer="datamosh"], [data-add-layer="motionTracker"]').forEach((button) => {
+  button.remove();
+});
 const addLayerButtons = Array.from(document.querySelectorAll("[data-add-layer]"));
 const collapsiblePanelHeads = Array.from(document.querySelectorAll(".panel-head[data-collapsible]"));
 
@@ -112,23 +139,14 @@ let reversePlaybackStamp = 0;
 let currentQuality = qualitySelect?.value || "balanced";
 let targetFps = Number(fpsSelect?.value || 30);
 let lastRenderAt = 0;
+let filterJsLoadPromise = null;
+const extraEditorControls = new Map();
 const volumeController = createVideoVolumeController({
   media: sourceVideo,
   slider: volumeSlider,
   output: volumeOutput,
   toggleButton: volumeButton,
 });
-
-function cloneChunk(chunk) {
-  const data = new Uint8Array(chunk.byteLength);
-  chunk.copyTo(data);
-  return new EncodedVideoChunk({
-    type: chunk.type,
-    timestamp: chunk.timestamp,
-    duration: chunk.duration,
-    data,
-  });
-}
 
 function setStatus(message) {
   statusText.textContent = message;
@@ -138,12 +156,26 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function mix(start, end, amount) {
+  return start + (end - start) * amount;
+}
+
+function smoothstep(edge0, edge1, value) {
+  const t = clamp((value - edge0) / Math.max(0.000001, edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 function wrapUnit(value) {
   return ((value % 1) + 1) % 1;
 }
 
 function setOutput(output, value, digits = 2) {
-  output.value = typeof value === "number" ? value.toFixed(digits) : value;
+  if (!output) {
+    return;
+  }
+  const nextValue = typeof value === "number" ? value.toFixed(digits) : value;
+  output.value = nextValue;
+  output.textContent = nextValue;
 }
 
 function getQualityPreset() {
@@ -200,7 +232,14 @@ function editorPassIsNeutral(params) {
     Math.abs(params.sharpness) < 0.001 &&
     Math.abs(params.echoFrames) < 0.001 &&
     Math.abs(params.edgeGlow) < 0.001 &&
-    Math.abs(params.crtGlow) < 0.001
+    Math.abs(params.crtGlow) < 0.001 &&
+    Math.abs(params.halftone ?? EDITOR_EXTRA_DEFAULTS.halftone) < 0.001 &&
+    Math.abs(params.solarize ?? EDITOR_EXTRA_DEFAULTS.solarize) < 0.001 &&
+    Math.abs(params.redChannel ?? EDITOR_EXTRA_DEFAULTS.redChannel) < 0.001 &&
+    Math.abs(params.cmyColorSpace ?? EDITOR_EXTRA_DEFAULTS.cmyColorSpace) < 0.001 &&
+    Math.abs(params.hueGreyscale ?? EDITOR_EXTRA_DEFAULTS.hueGreyscale) < 0.001 &&
+    Math.abs(params.hueConnectedComponents ?? EDITOR_EXTRA_DEFAULTS.hueConnectedComponents) < 0.001 &&
+    Math.abs(params.hueConnectedContours ?? EDITOR_EXTRA_DEFAULTS.hueConnectedContours) < 0.001
   );
 }
 
@@ -248,100 +287,11 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
     ghostCtx,
     auxCanvas,
     auxCtx,
-    mosh: null,
     detectState: {
       history: [],
       activeAverage: 0,
     },
   };
-}
-
-function destroyDatamoshRuntime(layer) {
-  const mosh = layer?.runtime?.mosh;
-  if (!mosh) {
-    return;
-  }
-
-  try {
-    mosh.encoder?.close();
-  } catch {}
-  try {
-    mosh.decoder?.close();
-  } catch {}
-  layer.runtime.mosh = null;
-}
-
-function ensureDatamoshRuntime(layer) {
-  const runtime = layer.runtime;
-  const width = runtime.canvas.width;
-  const height = runtime.canvas.height;
-  const existing = runtime.mosh;
-
-  if (!window.VideoEncoder || !window.VideoDecoder || !window.VideoFrame) {
-    return null;
-  }
-
-  if (existing && existing.width === width && existing.height === height) {
-    return existing;
-  }
-
-  destroyDatamoshRuntime(layer);
-
-  const mosh = {
-    width,
-    height,
-    encoder: null,
-    decoder: null,
-    frameCount: 0,
-    forceKeyFrame: true,
-    errored: false,
-  };
-
-  const drawDecodedFrame = (frame) => {
-    runtime.ctx.clearRect(0, 0, width, height);
-    runtime.ctx.save();
-    if (layer.params.mirror) {
-      runtime.ctx.translate(width, 0);
-      runtime.ctx.scale(-1, 1);
-    }
-    runtime.ctx.drawImage(frame, 0, 0, width, height);
-    runtime.ctx.restore();
-    frame.close();
-  };
-
-  mosh.decoder = new VideoDecoder({
-    output: drawDecodedFrame,
-    error: (error) => {
-      mosh.errored = true;
-      console.error("Datamosh decoder error:", error);
-    },
-  });
-  mosh.decoder.configure({ codec: "vp8" });
-
-  mosh.encoder = new VideoEncoder({
-    output: (chunk) => {
-      if (!mosh.decoder || mosh.decoder.state !== "configured") {
-        return;
-      }
-
-      const repeatCount = chunk.type === "key" ? 1 : Math.max(1, Math.round(layer.params.speed || 2));
-      for (let index = 0; index < repeatCount; index += 1) {
-        mosh.decoder.decode(cloneChunk(chunk));
-      }
-    },
-    error: (error) => {
-      mosh.errored = true;
-      console.error("Datamosh encoder error:", error);
-    },
-  });
-  mosh.encoder.configure({
-    codec: "vp8",
-    width,
-    height,
-  });
-
-  runtime.mosh = mosh;
-  return mosh;
 }
 
 function drawVideoFit(video, targetCtx) {
@@ -443,6 +393,697 @@ function hslToRgb(hue, saturation, lightness) {
     g: Math.round(hueToChannel(h) * 255),
     b: Math.round(hueToChannel(h - 1 / 3) * 255),
   };
+}
+
+function rgbToHsvNormalized(red, green, blue) {
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  let hue = 0;
+
+  if (delta > 0.000001) {
+    if (max === red) {
+      hue = ((green - blue) / delta) % 6;
+    } else if (max === green) {
+      hue = (blue - red) / delta + 2;
+    } else {
+      hue = (red - green) / delta + 4;
+    }
+    hue /= 6;
+  }
+
+  return {
+    h: wrapUnit(hue),
+    s: max <= 0.000001 ? 0 : delta / max,
+    v: max,
+  };
+}
+
+function ensureEditorExtraParams(layer) {
+  if (!layer || layer.type !== "editor") {
+    return layer;
+  }
+
+  if (!layer.params) {
+    layer.params = {};
+  }
+
+  EDITOR_EXTRA_EFFECT_CONFIG.forEach(({ key, defaultValue }) => {
+    if (typeof layer.params[key] !== "number" || Number.isNaN(layer.params[key])) {
+      layer.params[key] = defaultValue;
+    }
+  });
+
+  return layer;
+}
+
+function getEditorExtraValue(params, key) {
+  return typeof params?.[key] === "number" && !Number.isNaN(params[key]) ? params[key] : EDITOR_EXTRA_DEFAULTS[key] || 0;
+}
+
+function createEditorExtraSliderRow(config) {
+  const row = document.createElement("div");
+  row.className = "slider-row";
+
+  const label = document.createElement("label");
+  label.setAttribute("for", `editor-extra-${config.key}`);
+  label.textContent = config.label;
+
+  const input = document.createElement("input");
+  input.id = `editor-extra-${config.key}`;
+  input.type = "range";
+  input.min = String(config.min);
+  input.max = String(config.max);
+  input.step = String(config.step);
+  input.value = String(config.defaultValue);
+  input.dataset.editorExtraKey = config.key;
+
+  const output = document.createElement("output");
+  output.textContent = Number(config.defaultValue).toFixed(2);
+
+  row.append(label, input, output);
+  extraEditorControls.set(config.key, { row, input, output });
+  return row;
+}
+
+function injectEditorExtraControls() {
+  if (!editorControls || extraEditorControls.size) {
+    return;
+  }
+
+  const divider = document.createElement("div");
+  divider.textContent = "WebGL / Filter FX";
+  divider.style.marginTop = "4px";
+  divider.style.paddingTop = "6px";
+  divider.style.borderTop = "1px solid rgba(0,0,0,0.28)";
+  divider.style.fontWeight = "700";
+  divider.style.color = "var(--ink-soft, #2f2f2f)";
+  divider.style.letterSpacing = "0.02em";
+  editorControls.append(divider);
+
+  EDITOR_EXTRA_EFFECT_CONFIG.forEach((config) => {
+    editorControls.append(createEditorExtraSliderRow(config));
+  });
+}
+
+function syncEditorExtraControls() {
+  const editorLayer = ensureEditorExtraParams(layerEditor?.getEditorLayer?.());
+  EDITOR_EXTRA_EFFECT_CONFIG.forEach((config) => {
+    const control = extraEditorControls.get(config.key);
+    if (!control) {
+      return;
+    }
+    const value = editorLayer ? getEditorExtraValue(editorLayer.params, config.key) : config.defaultValue;
+    control.input.value = String(value);
+    setOutput(control.output, value);
+  });
+}
+
+function bindEditorExtraControls() {
+  extraEditorControls.forEach((control, key) => {
+    control.input.addEventListener("input", () => {
+      markControlTouched(control.input);
+      const editorLayer = ensureEditorExtraParams(layerEditor?.getEditorLayer?.());
+      if (!editorLayer) {
+        return;
+      }
+      editorLayer.params[key] = Number(control.input.value);
+      setOutput(control.output, editorLayer.params[key]);
+      if (EDITOR_WEBGL_EFFECT_KEYS.has(key) && editorLayer.params[key] > 0.001) {
+        ensureFilterJsLibrary();
+      }
+    });
+
+    control.input.addEventListener("pointerdown", () => {
+      markControlTouched(control.input);
+    });
+  });
+}
+
+function initializeEditorExtraControls() {
+  injectEditorExtraControls();
+  bindEditorExtraControls();
+  syncEditorExtraControls();
+}
+
+function extendLayerEditorForExtraEffects(editor) {
+  const originalEnsureEditorLayer = editor.ensureEditorLayer.bind(editor);
+  const originalGetEditorLayer = editor.getEditorLayer.bind(editor);
+  const originalSyncControlsFromSelection = editor.syncControlsFromSelection.bind(editor);
+  const originalResetEffects = editor.resetEffects.bind(editor);
+
+  editor.ensureEditorLayer = () => ensureEditorExtraParams(originalEnsureEditorLayer());
+  editor.getEditorLayer = () => ensureEditorExtraParams(originalGetEditorLayer());
+  editor.syncControlsFromSelection = () => {
+    const result = originalSyncControlsFromSelection();
+    syncEditorExtraControls();
+    return result;
+  };
+  editor.resetEffects = () => {
+    const result = originalResetEffects();
+    ensureEditorExtraParams(originalGetEditorLayer());
+    syncEditorExtraControls();
+    return result;
+  };
+
+  return editor;
+}
+
+function ensureFilterJsLibrary() {
+  if (window.FILTER) {
+    return Promise.resolve(window.FILTER);
+  }
+
+  if (filterJsLoadPromise) {
+    return filterJsLoadPromise;
+  }
+
+  filterJsLoadPromise = new Promise((resolve) => {
+    let currentIndex = 0;
+    const loadNext = () => {
+      if (window.FILTER) {
+        resolve(window.FILTER);
+        return;
+      }
+
+      const src = FILTER_JS_SCRIPT_URLS[currentIndex];
+      currentIndex += 1;
+      if (!src) {
+        resolve(null);
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.onload = () => {
+        if (window.FILTER) {
+          resolve(window.FILTER);
+          return;
+        }
+        script.remove();
+        loadNext();
+      };
+      script.onerror = () => {
+        script.remove();
+        loadNext();
+      };
+      document.head.append(script);
+    };
+
+    loadNext();
+  });
+
+  return filterJsLoadPromise;
+}
+
+function createEditorShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    return shader;
+  }
+  console.error("CRT editor shader compile failed:", gl.getShaderInfoLog(shader));
+  gl.deleteShader(shader);
+  return null;
+}
+
+function createEditorProgram(gl, vertexSource, fragmentSource) {
+  const vertexShader = createEditorShader(gl, gl.VERTEX_SHADER, vertexSource);
+  const fragmentShader = createEditorShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  if (!vertexShader || !fragmentShader) {
+    return null;
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+
+  if (gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    return program;
+  }
+
+  console.error("CRT editor program link failed:", gl.getProgramInfoLog(program));
+  gl.deleteProgram(program);
+  return null;
+}
+
+function editorWebGLEffectsActive(params) {
+  return (
+    getEditorExtraValue(params, "halftone") > 0.001 ||
+    getEditorExtraValue(params, "solarize") > 0.001 ||
+    getEditorExtraValue(params, "redChannel") > 0.001 ||
+    getEditorExtraValue(params, "cmyColorSpace") > 0.001 ||
+    getEditorExtraValue(params, "hueGreyscale") > 0.001
+  );
+}
+
+function ensureEditorWebGLState(runtime, width, height) {
+  if (runtime.editorWebglState?.available) {
+    const existing = runtime.editorWebglState;
+    if (existing.canvas.width !== width || existing.canvas.height !== height) {
+      existing.canvas.width = width;
+      existing.canvas.height = height;
+      existing.gl.viewport(0, 0, width, height);
+    }
+    return existing;
+  }
+
+  if (runtime.editorWebglState && runtime.editorWebglState.available === false) {
+    return runtime.editorWebglState;
+  }
+
+  ensureFilterJsLibrary();
+  const webglCanvas = document.createElement("canvas");
+  webglCanvas.width = width;
+  webglCanvas.height = height;
+  const gl = webglCanvas.getContext("webgl", {
+    alpha: false,
+    antialias: false,
+    preserveDrawingBuffer: true,
+    premultipliedAlpha: false,
+  }) || webglCanvas.getContext("experimental-webgl");
+
+  if (!gl) {
+    runtime.editorWebglState = { available: false };
+    return runtime.editorWebglState;
+  }
+
+  const vertexSource = `
+    attribute vec2 a_position;
+    varying vec2 v_uv;
+
+    void main() {
+      v_uv = (a_position + 1.0) * 0.5;
+      v_uv.y = 1.0 - v_uv.y;
+      gl_Position = vec4(a_position, 0.0, 1.0);
+    }
+  `;
+
+  const fragmentSource = `
+    precision mediump float;
+
+    varying vec2 v_uv;
+    uniform sampler2D u_texture;
+    uniform vec2 u_resolution;
+    uniform float u_halftone;
+    uniform float u_solarize;
+    uniform float u_redChannel;
+    uniform float u_cmy;
+    uniform float u_hueGray;
+
+    vec3 rgb2hsv(vec3 color) {
+      vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+      vec4 p = mix(vec4(color.bg, K.wz), vec4(color.gb, K.xy), step(color.b, color.g));
+      vec4 q = mix(vec4(p.xyw, color.r), vec4(color.r, p.yzx), step(p.x, color.r));
+      float d = q.x - min(q.w, q.y);
+      float e = 0.00001;
+      return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+    }
+
+    float rotatedPattern(vec2 pixel, float angle, float size) {
+      float s = sin(angle);
+      float c = cos(angle);
+      vec2 point = vec2(
+        c * pixel.x - s * pixel.y,
+        s * pixel.x + c * pixel.y
+      ) / size;
+      return sin(point.x) * sin(point.y);
+    }
+
+    void main() {
+      vec3 color = texture2D(u_texture, v_uv).rgb;
+
+      if (u_redChannel > 0.001) {
+        color = mix(color, vec3(color.r, 0.0, 0.0), u_redChannel);
+      }
+
+      if (u_cmy > 0.001) {
+        color = mix(color, vec3(1.0) - color, u_cmy);
+      }
+
+      if (u_hueGray > 0.001) {
+        vec3 hsv = rgb2hsv(color);
+        color = mix(color, vec3(hsv.x), u_hueGray);
+      }
+
+      if (u_solarize > 0.001) {
+        float threshold = mix(0.84, 0.34, u_solarize);
+        vec3 solarized = mix(color, 1.0 - color, step(vec3(threshold), color));
+        color = mix(color, solarized, u_solarize);
+      }
+
+      if (u_halftone > 0.001) {
+        float size = mix(28.0, 4.5, clamp(u_halftone, 0.0, 1.0));
+        vec2 pixel = v_uv * u_resolution;
+        vec3 cmy = 1.0 - color;
+        float cyan = smoothstep(-1.0, 1.0, rotatedPattern(pixel, 0.261799, size) + cmy.r * 1.6 - 0.8);
+        float magenta = smoothstep(-1.0, 1.0, rotatedPattern(pixel, 1.308996, size) + cmy.g * 1.6 - 0.8);
+        float yellow = smoothstep(-1.0, 1.0, rotatedPattern(pixel, 0.0, size) + cmy.b * 1.6 - 0.8);
+        vec3 halftone = 1.0 - vec3(cyan, magenta, yellow);
+        color = mix(color, halftone, u_halftone);
+      }
+
+      gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+    }
+  `;
+
+  const program = createEditorProgram(gl, vertexSource, fragmentSource);
+  if (!program) {
+    runtime.editorWebglState = { available: false };
+    return runtime.editorWebglState;
+  }
+
+  const quadBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,
+    1, -1,
+    -1, 1,
+    1, 1,
+  ]), gl.STATIC_DRAW);
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+  runtime.editorWebglState = {
+    available: true,
+    canvas: webglCanvas,
+    gl,
+    program,
+    quadBuffer,
+    texture,
+    attribs: {
+      position: gl.getAttribLocation(program, "a_position"),
+    },
+    uniforms: {
+      texture: gl.getUniformLocation(program, "u_texture"),
+      resolution: gl.getUniformLocation(program, "u_resolution"),
+      halftone: gl.getUniformLocation(program, "u_halftone"),
+      solarize: gl.getUniformLocation(program, "u_solarize"),
+      redChannel: gl.getUniformLocation(program, "u_redChannel"),
+      cmy: gl.getUniformLocation(program, "u_cmy"),
+      hueGray: gl.getUniformLocation(program, "u_hueGray"),
+    },
+  };
+
+  return runtime.editorWebglState;
+}
+
+function applyEditorWebGLPass(targetCtx, params, runtime) {
+  const width = targetCtx.canvas.width;
+  const height = targetCtx.canvas.height;
+  const state = ensureEditorWebGLState(runtime, width, height);
+  if (!state?.available) {
+    return false;
+  }
+
+  const { gl, program, quadBuffer, texture, attribs, uniforms } = state;
+  gl.viewport(0, 0, width, height);
+  gl.useProgram(program);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+  gl.enableVertexAttribArray(attribs.position);
+  gl.vertexAttribPointer(attribs.position, 2, gl.FLOAT, false, 0, 0);
+
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, targetCtx.canvas);
+
+  gl.uniform1i(uniforms.texture, 0);
+  gl.uniform2f(uniforms.resolution, width, height);
+  gl.uniform1f(uniforms.halftone, clamp(getEditorExtraValue(params, "halftone"), 0, 1));
+  gl.uniform1f(uniforms.solarize, clamp(getEditorExtraValue(params, "solarize"), 0, 1));
+  gl.uniform1f(uniforms.redChannel, clamp(getEditorExtraValue(params, "redChannel"), 0, 1));
+  gl.uniform1f(uniforms.cmy, clamp(getEditorExtraValue(params, "cmyColorSpace"), 0, 1));
+  gl.uniform1f(uniforms.hueGray, clamp(getEditorExtraValue(params, "hueGreyscale"), 0, 1));
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  targetCtx.clearRect(0, 0, width, height);
+  targetCtx.drawImage(state.canvas, 0, 0);
+  return true;
+}
+
+function applyEditorAdvancedCpuFallback(targetCtx, params) {
+  const width = targetCtx.canvas.width;
+  const height = targetCtx.canvas.height;
+  const halftone = clamp(getEditorExtraValue(params, "halftone"), 0, 1);
+  const solarize = clamp(getEditorExtraValue(params, "solarize"), 0, 1);
+  const redChannel = clamp(getEditorExtraValue(params, "redChannel"), 0, 1);
+  const cmy = clamp(getEditorExtraValue(params, "cmyColorSpace"), 0, 1);
+  const hueGray = clamp(getEditorExtraValue(params, "hueGreyscale"), 0, 1);
+
+  if (halftone <= 0.001 && solarize <= 0.001 && redChannel <= 0.001 && cmy <= 0.001 && hueGray <= 0.001) {
+    return;
+  }
+
+  const imageData = targetCtx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const size = mix(28, 4.5, halftone);
+  const cyanAngle = 0.261799;
+  const magentaAngle = 1.308996;
+
+  const patternAt = (x, y, angle) => {
+    const s = Math.sin(angle);
+    const c = Math.cos(angle);
+    const px = (c * x - s * y) / size;
+    const py = (s * x + c * y) / size;
+    return Math.sin(px) * Math.sin(py);
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      let red = data[index] / 255;
+      let green = data[index + 1] / 255;
+      let blue = data[index + 2] / 255;
+
+      if (redChannel > 0.001) {
+        red = mix(red, red, redChannel);
+        green = mix(green, 0, redChannel);
+        blue = mix(blue, 0, redChannel);
+      }
+
+      if (cmy > 0.001) {
+        red = mix(red, 1 - red, cmy);
+        green = mix(green, 1 - green, cmy);
+        blue = mix(blue, 1 - blue, cmy);
+      }
+
+      if (hueGray > 0.001) {
+        const hsv = rgbToHsvNormalized(red, green, blue);
+        red = mix(red, hsv.h, hueGray);
+        green = mix(green, hsv.h, hueGray);
+        blue = mix(blue, hsv.h, hueGray);
+      }
+
+      if (solarize > 0.001) {
+        const threshold = mix(0.84, 0.34, solarize);
+        red = mix(red, red >= threshold ? 1 - red : red, solarize);
+        green = mix(green, green >= threshold ? 1 - green : green, solarize);
+        blue = mix(blue, blue >= threshold ? 1 - blue : blue, solarize);
+      }
+
+      if (halftone > 0.001) {
+        const cyan = 1 - red;
+        const magenta = 1 - green;
+        const yellow = 1 - blue;
+        const htRed = 1 - smoothstep(-1, 1, patternAt(x, y, cyanAngle) + cyan * 1.6 - 0.8);
+        const htGreen = 1 - smoothstep(-1, 1, patternAt(x, y, magentaAngle) + magenta * 1.6 - 0.8);
+        const htBlue = 1 - smoothstep(-1, 1, patternAt(x, y, 0) + yellow * 1.6 - 0.8);
+        red = mix(red, htRed, halftone);
+        green = mix(green, htGreen, halftone);
+        blue = mix(blue, htBlue, halftone);
+      }
+
+      data[index] = clamp(Math.round(red * 255), 0, 255);
+      data[index + 1] = clamp(Math.round(green * 255), 0, 255);
+      data[index + 2] = clamp(Math.round(blue * 255), 0, 255);
+    }
+  }
+
+  targetCtx.putImageData(imageData, 0, 0);
+}
+
+function applyHueConnectedComponentsPass(targetCtx, params, runtime) {
+  const fillAmount = clamp(getEditorExtraValue(params, "hueConnectedComponents"), 0, 1);
+  const contourAmount = clamp(getEditorExtraValue(params, "hueConnectedContours"), 0, 1);
+  if ((fillAmount <= 0.001 && contourAmount <= 0.001) || !runtime?.auxCtx) {
+    return;
+  }
+
+  const width = targetCtx.canvas.width;
+  const height = targetCtx.canvas.height;
+  const preset = getQualityPreset();
+  const effectStrength = Math.max(fillAmount, contourAmount);
+  const blockSize = Math.max(2, Math.round((2.6 - effectStrength * 1.35) * preset.clusterStepScale));
+  const columns = Math.ceil(width / blockSize);
+  const rows = Math.ceil(height / blockSize);
+  const total = columns * rows;
+  const hueBins = Math.max(4, Math.round(4 + effectStrength * 10));
+  const minimumCells = Math.max(3, Math.round((1.15 - effectStrength) * 8));
+  const binGrid = new Int16Array(total);
+  const saturationGrid = new Float32Array(total);
+  const valueGrid = new Float32Array(total);
+  const labelGrid = new Int32Array(total);
+  const queue = new Int32Array(total);
+  const imageData = targetCtx.getImageData(0, 0, width, height);
+  const pixels = imageData.data;
+  binGrid.fill(-1);
+  labelGrid.fill(-1);
+
+  const sampleColorAt = (gridX, gridY) => {
+    const x = Math.min(width - 1, gridX * blockSize + Math.floor(blockSize * 0.5));
+    const y = Math.min(height - 1, gridY * blockSize + Math.floor(blockSize * 0.5));
+    const index = (y * width + x) * 4;
+    return {
+      red: pixels[index] / 255,
+      green: pixels[index + 1] / 255,
+      blue: pixels[index + 2] / 255,
+    };
+  };
+
+  for (let gridY = 0; gridY < rows; gridY += 1) {
+    for (let gridX = 0; gridX < columns; gridX += 1) {
+      const gridIndex = gridY * columns + gridX;
+      const sample = sampleColorAt(gridX, gridY);
+      const hsv = rgbToHsvNormalized(sample.red, sample.green, sample.blue);
+      if (hsv.s < mix(0.2, 0.08, effectStrength) || hsv.v < mix(0.18, 0.1, effectStrength)) {
+        continue;
+      }
+      binGrid[gridIndex] = Math.min(hueBins - 1, Math.floor(hsv.h * hueBins));
+      saturationGrid[gridIndex] = hsv.s;
+      valueGrid[gridIndex] = hsv.v;
+    }
+  }
+
+  const acceptedComponents = [];
+  let componentId = 0;
+
+  for (let start = 0; start < total; start += 1) {
+    if (labelGrid[start] !== -1 || binGrid[start] < 0) {
+      continue;
+    }
+
+    const startBin = binGrid[start];
+    let queueHead = 0;
+    let queueTail = 0;
+    const cells = [];
+    let saturationSum = 0;
+    let valueSum = 0;
+
+    queue[queueTail++] = start;
+    labelGrid[start] = -2;
+
+    while (queueHead < queueTail) {
+      const current = queue[queueHead++];
+      const currentX = current % columns;
+      const currentY = Math.floor(current / columns);
+      cells.push(current);
+      saturationSum += saturationGrid[current];
+      valueSum += valueGrid[current];
+
+      const neighbors = [
+        [currentX - 1, currentY],
+        [currentX + 1, currentY],
+        [currentX, currentY - 1],
+        [currentX, currentY + 1],
+      ];
+
+      neighbors.forEach(([nextX, nextY]) => {
+        if (nextX < 0 || nextX >= columns || nextY < 0 || nextY >= rows) {
+          return;
+        }
+        const nextIndex = nextY * columns + nextX;
+        if (labelGrid[nextIndex] !== -1 || binGrid[nextIndex] !== startBin) {
+          return;
+        }
+        labelGrid[nextIndex] = -2;
+        queue[queueTail++] = nextIndex;
+      });
+    }
+
+    if (cells.length < minimumCells) {
+      cells.forEach((cellIndex) => {
+        labelGrid[cellIndex] = -3;
+      });
+      continue;
+    }
+
+    const averageSaturation = saturationSum / cells.length;
+    const averageValue = valueSum / cells.length;
+    const hue = (startBin + 0.5) / hueBins;
+    const tint = hslToRgb(hue, clamp(0.45 + averageSaturation * 0.5, 0, 1), clamp(0.28 + averageValue * 0.4, 0.25, 0.74));
+    cells.forEach((cellIndex) => {
+      labelGrid[cellIndex] = componentId;
+    });
+    acceptedComponents.push({
+      id: componentId,
+      cells,
+      tint,
+    });
+    componentId += 1;
+  }
+
+  runtime.auxCtx.clearRect(0, 0, width, height);
+
+  if (fillAmount > 0.001) {
+    acceptedComponents.forEach((component) => {
+      runtime.auxCtx.fillStyle = `rgba(${component.tint.r}, ${component.tint.g}, ${component.tint.b}, ${0.2 + fillAmount * 0.42})`;
+      component.cells.forEach((cellIndex) => {
+        const gridX = cellIndex % columns;
+        const gridY = Math.floor(cellIndex / columns);
+        runtime.auxCtx.fillRect(gridX * blockSize, gridY * blockSize, blockSize, blockSize);
+      });
+    });
+
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = "screen";
+    targetCtx.globalAlpha = 0.38 + fillAmount * 0.42;
+    targetCtx.drawImage(runtime.auxCanvas, 0, 0);
+    targetCtx.restore();
+  }
+
+  if (contourAmount > 0.001) {
+    const edgeSize = Math.max(1, Math.round(blockSize * (0.22 + contourAmount * 0.33)));
+    targetCtx.save();
+    targetCtx.globalAlpha = 0.46 + contourAmount * 0.42;
+    acceptedComponents.forEach((component) => {
+      targetCtx.fillStyle = `rgba(${component.tint.r}, ${component.tint.g}, ${component.tint.b}, ${0.76 + contourAmount * 0.2})`;
+      component.cells.forEach((cellIndex) => {
+        const gridX = cellIndex % columns;
+        const gridY = Math.floor(cellIndex / columns);
+        const px = gridX * blockSize;
+        const py = gridY * blockSize;
+        const top = gridY === 0 ? -1 : labelGrid[(gridY - 1) * columns + gridX];
+        const bottom = gridY === rows - 1 ? -1 : labelGrid[(gridY + 1) * columns + gridX];
+        const left = gridX === 0 ? -1 : labelGrid[gridY * columns + gridX - 1];
+        const right = gridX === columns - 1 ? -1 : labelGrid[gridY * columns + gridX + 1];
+
+        if (top !== component.id) {
+          targetCtx.fillRect(px, py, blockSize, edgeSize);
+        }
+        if (bottom !== component.id) {
+          targetCtx.fillRect(px, py + blockSize - edgeSize, blockSize, edgeSize);
+        }
+        if (left !== component.id) {
+          targetCtx.fillRect(px, py, edgeSize, blockSize);
+        }
+        if (right !== component.id) {
+          targetCtx.fillRect(px + blockSize - edgeSize, py, edgeSize, blockSize);
+        }
+      });
+    });
+    targetCtx.restore();
+  }
 }
 
 function resizeBuffers(videoWidth = 1280, videoHeight = 720) {
@@ -1109,6 +1750,15 @@ function applyEditorPass(targetCtx, params, runtime) {
 
   targetCtx.putImageData(new ImageData(output, width, height), 0, 0);
 
+  if (editorWebGLEffectsActive(params)) {
+    const appliedThroughWebGL = applyEditorWebGLPass(targetCtx, params, runtime);
+    if (!appliedThroughWebGL) {
+      applyEditorAdvancedCpuFallback(targetCtx, params);
+    }
+  }
+
+  applyHueConnectedComponentsPass(targetCtx, params, runtime);
+
   if (params.echoFrames > 0 && runtime?.ghostCanvas) {
     targetCtx.save();
     targetCtx.globalCompositeOperation = "screen";
@@ -1200,51 +1850,10 @@ function applyEditorPass(targetCtx, params, runtime) {
   }
 }
 
-function renderDatamoshLayer(layer) {
-  const runtime = layer.runtime;
-  const width = runtime.canvas.width;
-  const height = runtime.canvas.height;
-  const mosh = ensureDatamoshRuntime(layer);
-
-  if (!mosh || mosh.errored) {
-    runtime.ctx.clearRect(0, 0, width, height);
-    runtime.ctx.save();
-    if (layer.params.mirror) {
-      runtime.ctx.translate(width, 0);
-      runtime.ctx.scale(-1, 1);
-    }
-    runtime.ctx.drawImage(sourceCanvas, 0, 0, width, height);
-    runtime.ctx.restore();
-    return;
-  }
-
-  mosh.frameCount += 1;
-  const keyframeEvery = Math.max(1, Math.round(layer.params.keyframeEvery || 10));
-  const frame = new VideoFrame(sourceCanvas);
-  try {
-    mosh.encoder.encode(frame, {
-      keyFrame: mosh.forceKeyFrame || mosh.frameCount % keyframeEvery === 0,
-    });
-    mosh.forceKeyFrame = false;
-  } catch (error) {
-    mosh.errored = true;
-    console.error("Datamosh encode failed:", error);
-    runtime.ctx.clearRect(0, 0, width, height);
-    runtime.ctx.drawImage(sourceCanvas, 0, 0, width, height);
-  } finally {
-    frame.close();
-  }
-}
-
 function renderLayer(layer, sourceImageData, elapsed) {
   if (layer.type === "video") {
     layer.runtime.ctx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
     layer.runtime.ctx.drawImage(sourceCanvas, 0, 0);
-    return;
-  }
-
-  if (layer.type === "datamosh") {
-    renderDatamoshLayer(layer);
     return;
   }
 
@@ -1767,14 +2376,13 @@ layerEditor = createLayerEditor({
   setOutput,
   markControlTouched,
   trackLayerAdd: () => {},
-  disposeLayerRuntime: (layer) => {
-    destroyDatamoshRuntime(layer);
-  },
+  disposeLayerRuntime: () => {},
 });
+extendLayerEditorForExtraEffects(layerEditor);
+initializeEditorExtraControls();
 
 window.addEventListener("beforeunload", () => {
   volumeController.setAvailable(false);
-  getLayers().forEach((layer) => destroyDatamoshRuntime(layer));
   stopReversePlayback();
   stopLoop();
   revokeActiveUrl();

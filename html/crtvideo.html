@@ -1,20 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CRT WRLD VIDEO</title>
     <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Special+Elite&display=swap" rel="stylesheet" />
     <style>
       :root {
-        --line: #111111;
-        --line-soft: #d5d5d5;
-        --text: #111111;
-        --muted: #666666;
+        --desktop: #008080;
+        --desktop-accent: #149090;
+        --window: #c0c0c0;
+        --window-soft: #d4d0c8;
+        --light: #ffffff;
+        --light-soft: #dfdfdf;
+        --shadow: #808080;
+        --shadow-deep: #404040;
+        --ink: #000000;
+        --ink-soft: #2f2f2f;
+        --title-start: #0a246a;
+        --title-end: #a6caf0;
+        --player-bg: #000000;
+        --player-ink: #f4f4f4;
       }
 
       * {
@@ -25,21 +31,41 @@
       body {
         margin: 0;
         min-height: 100%;
-        background: #ffffff;
-        color: var(--text);
-        font-family: "IBM Plex Mono", monospace;
+        color: var(--ink);
+        font-family: "Tahoma", "MS Sans Serif", "Segoe UI", sans-serif;
+        font-size: 12px;
+        background:
+          radial-gradient(circle at top, rgba(255, 255, 255, 0.1), transparent 38%),
+          linear-gradient(135deg, var(--desktop-accent), var(--desktop));
+      }
+
+      body {
+        position: relative;
+      }
+
+      body .site-home-logo {
+        display: none !important;
       }
 
       .page {
         min-height: 100vh;
-        padding: 18px;
+        padding: 28px 18px;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 4px 4px;
       }
 
       .shell {
-        max-width: 1480px;
+        max-width: 1540px;
         margin: 0 auto;
-        border: 1px solid var(--line);
-        background: #ffffff;
+        background: var(--window);
+        border: 2px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        box-shadow:
+          inset 1px 1px 0 var(--light-soft),
+          inset -1px -1px 0 var(--shadow),
+          4px 4px 0 rgba(0, 0, 0, 0.25);
       }
 
       .titlebar {
@@ -47,171 +73,211 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 14px 16px;
-        border-bottom: 1px solid var(--line);
-        background: #ffffff;
+        padding: 5px 6px;
+        background: linear-gradient(90deg, var(--title-start), var(--title-end));
+        color: #ffffff;
       }
 
       .titlebar-main {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         min-width: 0;
+      }
+
+      .app-icon {
+        width: 18px;
+        height: 18px;
+        position: relative;
+        flex: 0 0 auto;
+        border: 1px solid #00143f;
+        background:
+          linear-gradient(90deg, #000000 0 48%, transparent 48%),
+          linear-gradient(180deg, #000000 0 48%, transparent 48%),
+          linear-gradient(135deg, #ffcb4f, #cc4f31);
+        box-shadow:
+          inset 1px 1px 0 rgba(255, 255, 255, 0.55),
+          inset -1px -1px 0 rgba(0, 0, 0, 0.35);
       }
 
       .titlebar h1 {
         margin: 0;
-        font-family: "Special Elite", monospace;
-        font-size: clamp(1rem, 2vw, 1.35rem);
-        letter-spacing: 0.08rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
       }
 
-      .titlebar-actions {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
+      .window-controls {
+        display: flex;
+        gap: 2px;
+        flex: 0 0 auto;
       }
 
-      .icon-button {
-        display: inline-flex;
+      .menu-shell {
+        padding: 0 6px 6px;
+      }
+
+      .menu-bar,
+      .mode-toolbar {
+        display: flex;
         align-items: center;
-        justify-content: center;
-        width: 30px;
-        height: 30px;
-        border: 1px solid #111111;
-        background: #ffffff;
-        color: #111111;
-        font: inherit;
-        font-size: 0.88rem;
-        cursor: pointer;
+        gap: 4px;
+        padding: 4px 5px;
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+      }
+
+      .mode-toolbar {
+        margin-top: 4px;
+        align-items: flex-start;
+      }
+
+      .menu-item,
+      .toolbar-label {
+        color: var(--ink);
+        white-space: nowrap;
+      }
+
+      .menu-item {
+        padding: 2px 8px;
+      }
+
+      .menu-item.is-active {
+        border: 1px solid;
+        border-color: var(--shadow) var(--light) var(--light) var(--shadow);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--shadow-deep), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .toolbar-label {
+        min-width: 64px;
+        padding: 3px 2px 0;
+        font-weight: 700;
       }
 
       .mode-tabs {
         display: flex;
-        gap: 8px;
         flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      button,
+      input,
+      select,
+      output {
+        font: inherit;
+      }
+
+      .button,
+      .icon-button,
+      .mini-button,
+      .window-button,
+      .mode-tab,
+      select {
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window);
+        color: var(--ink);
+        border-radius: 0;
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
+      }
+
+      .button,
+      .icon-button,
+      .mini-button,
+      .window-button,
+      .mode-tab {
+        cursor: pointer;
+      }
+
+      .button:active,
+      .icon-button:active,
+      .mini-button:active,
+      .mode-tab.active {
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .button:focus-visible,
+      .icon-button:focus-visible,
+      .mini-button:focus-visible,
+      .window-button:focus-visible,
+      .mode-tab:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 1px dotted var(--ink);
+        outline-offset: -4px;
+      }
+
+      .window-button {
+        width: 22px;
+        height: 20px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        line-height: 1;
       }
 
       .mode-tab {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 34px;
-        padding: 8px 12px 6px;
-        border: 1px solid var(--line);
-        color: var(--text);
+        min-height: 24px;
+        padding: 4px 10px;
         text-decoration: none;
-        font-size: 0.62rem;
-        letter-spacing: 0.08rem;
-        text-transform: uppercase;
-        background: #ffffff;
+        font-size: 11px;
+        letter-spacing: 0.02em;
       }
 
       .mode-tab.pixel {
-        font-family: "IBM Plex Mono", monospace;
-      }
-
-      .mode-tab.active {
-        background: #111111;
-        color: #ffffff;
+        font-family: inherit;
       }
 
       .layout {
         display: grid;
-        grid-template-columns: minmax(320px, 0.56fr) minmax(0, 1.5fr) minmax(380px, 0.7fr);
+        grid-template-columns: 300px minmax(0, 1fr) 340px;
+        gap: 10px;
+        padding: 0 6px 8px;
       }
 
       .sidebar-panel,
+      .stage-panel,
       .control-panel {
-        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
       }
 
-      .sidebar-panel {
-        border-right: 1px solid var(--line);
-      }
-
-      .stage-panel {
-        padding: 16px;
-        border-right: 1px solid var(--line);
-      }
-
-      #player-shell {
-        border: 1px solid var(--line);
-        background: #000;
-        aspect-ratio: 16 / 9;
-        overflow: hidden;
-      }
-
-      #video-canvas {
-        width: 100%;
-        height: 100%;
-        display: block;
-      }
-
-      .stage-copy {
-        margin-top: 14px;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 14px;
-      }
-
+      .panel-group,
+      .player-window,
       .copy-box {
-        min-height: 72px;
-        border: 1px solid var(--line-soft);
-        padding: 12px;
-        background: #fafafa;
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
       }
 
-      .copy-box strong {
-        display: block;
-        margin-bottom: 8px;
-        font-family: "Special Elite", monospace;
-        font-size: 0.72rem;
-        line-height: 1.5;
-        color: #111111;
-      }
-
-      .copy-box span {
-        color: var(--muted);
-        font-size: 0.7rem;
-        letter-spacing: 0.05rem;
-      }
-
-      .panel-group {
-        border: 1px solid var(--line);
-        margin-bottom: 14px;
-        background: #ffffff;
+      .panel-group.collapsed .panel-body {
+        display: none;
       }
 
       .panel-head {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 12px 14px;
-        border-bottom: 1px solid var(--line);
-        background: #fafafa;
-      }
-
-      .panel-head h2 {
-        margin: 0;
-        font-family: "Special Elite", monospace;
-        font-size: 0.88rem;
-        letter-spacing: 0.08rem;
-      }
-
-      .panel-head span {
-        color: var(--muted);
-        font-size: 0.64rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08rem;
-      }
-
-      .panel-body {
-        padding: 14px;
-      }
-
-      .panel-group.collapsed .panel-body {
-        display: none;
+        gap: 8px;
+        padding: 5px 6px;
+        background: var(--window-soft);
+        border-bottom: 1px solid var(--shadow);
       }
 
       .panel-head[data-collapsible] {
@@ -221,94 +287,236 @@
       .panel-head-main {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         min-width: 0;
       }
 
+      .panel-head h2 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .panel-head span {
+        font-size: 11px;
+        color: var(--ink-soft);
+      }
+
       .hud-toggle {
+        width: 18px;
+        height: 18px;
+        padding: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 20px;
-        height: 20px;
-        border: 1px solid var(--line);
-        background: #ffffff;
-        color: var(--text);
-        font: inherit;
-        font-size: 0.8rem;
-        line-height: 1;
-        cursor: pointer;
-        flex: 0 0 auto;
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
       }
 
       .panel-group.collapsed .hud-toggle {
         transform: rotate(-90deg);
       }
 
-      .button-grid {
+      .panel-body {
+        padding: 8px;
         display: grid;
-        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+
+      .player-window {
+        display: grid;
+        gap: 8px;
+        padding: 8px;
+      }
+
+      .player-viewport {
+        padding: 3px;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
+      }
+
+      #player-shell {
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border: 1px solid #000000;
+        background: #000000;
+      }
+
+      #video-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #000000;
+      }
+
+      .transport-strip {
+        display: grid;
+        gap: 8px;
+        padding: 6px;
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+      }
+
+      .transport-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+
+      .transport-bank {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      .transport-bank-secondary {
+        justify-content: flex-end;
+      }
+
+      .icon-button {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+      }
+
+      .button {
+        min-height: 28px;
+        padding: 0 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .button:disabled,
+      .icon-button:disabled,
+      .mini-button:disabled,
+      select:disabled,
+      input:disabled {
+        color: var(--shadow);
+        cursor: not-allowed;
+      }
+
+      .volume-rack {
+        display: grid;
+        grid-template-columns: auto minmax(140px, 1fr) 46px auto;
+        gap: 6px;
+        align-items: center;
+        min-width: min(100%, 420px);
+        flex: 1 1 420px;
+      }
+
+      .volume-rack label {
+        font-weight: 700;
+      }
+
+      .transport-readout {
+        min-width: 176px;
+        padding: 3px 7px;
+        display: grid;
+        justify-items: end;
+        gap: 2px;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .transport-readout-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        letter-spacing: 0.04em;
+      }
+
+      .transport-readout-value {
+        font-weight: 700;
+      }
+
+      .player-readout {
+        display: grid;
+        gap: 4px;
+        padding: 6px;
+        background: var(--player-bg);
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
+      }
+
+      .meta,
+      .status {
+        margin: 0;
+        color: var(--player-ink);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .status {
+        min-height: 1.4em;
+        color: #fff6b1;
+      }
+
+      .stage-copy {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 10px;
       }
 
+      .copy-box {
+        min-height: 84px;
+        padding: 8px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .copy-box strong {
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .copy-box span {
+        color: var(--ink-soft);
+        line-height: 1.45;
+      }
+
+      .button-grid {
+        display: grid;
+        gap: 8px;
+      }
+
       .button-grid.compact {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
       }
 
       .settings-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 12px;
-      }
-
-      .button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 52px;
-        padding: 0 14px;
-        border: 1px solid var(--line);
-        background: #ffffff;
-        color: var(--text);
-        font: inherit;
-        font-size: 0.74rem;
-        letter-spacing: 0.12rem;
-        text-transform: uppercase;
-        cursor: pointer;
-      }
-
-      .button:disabled {
-        opacity: 0.5;
-        cursor: progress;
-      }
-
-      #video-input,
-      #video-source {
-        display: none;
-      }
-
-      .meta,
-      .status {
-        margin-top: 12px;
-        font-size: 0.68rem;
-        letter-spacing: 0.05rem;
-        color: var(--muted);
-      }
-
-      .status {
-        min-height: 1.4em;
-        color: var(--text);
+        gap: 8px;
       }
 
       .slider-grid {
         display: grid;
-        gap: 12px;
+        gap: 8px;
       }
 
       .slider-row {
         display: grid;
-        grid-template-columns: 92px minmax(0, 1fr) 54px;
+        grid-template-columns: 90px minmax(0, 1fr) 46px;
         gap: 8px;
         align-items: center;
       }
@@ -317,298 +525,200 @@
         min-width: 0;
       }
 
-      .slider-row label {
-        font-family: "IBM Plex Mono", monospace;
-        font-size: 0.62rem;
-        line-height: 1.4;
-        text-transform: uppercase;
-        letter-spacing: 0.03rem;
+      .slider-row label,
+      .layer-field label,
+      .layer-inline-row label {
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 700;
       }
 
-      .slider-row output {
-        width: 54px;
-        justify-self: end;
-        text-align: right;
-        color: var(--text);
-        font-size: 0.7rem;
-        font-variant-numeric: tabular-nums;
+      .slider-row output,
+      .layer-inline-control output,
+      .layer-opacity output {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        min-height: 22px;
+        padding: 0 4px;
+        background: var(--window);
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+        color: var(--ink);
       }
 
       input[type="range"] {
         -webkit-appearance: none;
         appearance: none;
-        display: block;
         width: 100%;
-        min-width: 0;
+        height: 20px;
         margin: 0;
-        padding: 0;
-        justify-self: stretch;
-        align-self: center;
-        height: 18px;
         background: transparent;
-        outline: none;
       }
 
       input[type="range"]::-webkit-slider-runnable-track {
-        height: 2px;
-        background: #111111;
-      }
-
-      input[type="range"].touched::-webkit-slider-runnable-track {
-        background: #d62828;
+        height: 4px;
+        background: #8c8c8c;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
       }
 
       input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
         width: 12px;
-        height: 12px;
-        border: 1px solid #111111;
-        border-radius: 0;
-        background: #ffffff;
-        cursor: pointer;
-        margin-top: -5px;
+        height: 20px;
+        margin-top: -9px;
+        background: var(--window);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
       }
 
       input[type="range"]::-moz-range-track {
-        height: 2px;
-        background: #111111;
-      }
-
-      input[type="range"].touched::-moz-range-track {
-        background: #d62828;
+        height: 4px;
+        background: #8c8c8c;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
       }
 
       input[type="range"]::-moz-range-thumb {
         width: 12px;
-        height: 12px;
-        border: 1px solid #111111;
+        height: 20px;
+        background: var(--window);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
         border-radius: 0;
-        background: #ffffff;
-        cursor: pointer;
       }
 
-      select.touched,
-      .toggle-check.touched {
-        border-color: #d62828;
-        color: #d62828;
+      input[type="range"].touched::-webkit-slider-thumb,
+      input[type="range"].touched::-moz-range-thumb {
+        background: #d8ddff;
       }
 
-      .slider-toggle {
-        display: flex;
-        justify-content: flex-end;
+      select {
+        width: 100%;
+        min-height: 24px;
+        padding: 1px 22px 1px 6px;
+        appearance: none;
+        background:
+          linear-gradient(45deg, transparent 50%, var(--ink) 50%),
+          linear-gradient(135deg, var(--ink) 50%, transparent 50%),
+          linear-gradient(to right, transparent, transparent);
+        background-position:
+          calc(100% - 13px) 9px,
+          calc(100% - 8px) 9px,
+          0 0;
+        background-size: 5px 5px, 5px 5px, 100% 100%;
+        background-repeat: no-repeat;
       }
 
       .toggle-check {
-        width: 18px;
-        height: 18px;
+        width: 14px;
+        height: 14px;
         margin: 0;
-        accent-color: #d62828;
+        accent-color: var(--title-start);
+      }
+
+      .select.touched,
+      select.touched,
+      .toggle-check.touched {
+        outline: 1px dotted var(--title-start);
+        outline-offset: 1px;
       }
 
       .preset-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 12px;
-      }
-
-      .button.active,
-      .preset-button.active {
-        background: #111111;
-        color: #ffffff;
-        box-shadow: none;
-      }
-
-      .preset-button[data-add-layer="crt"] {
-        border-color: #7447ff;
-        color: #7447ff;
-      }
-
-      .preset-button[data-add-layer="datamosh"] {
-        border: 3px solid #6cff57;
-        background:
-          linear-gradient(180deg, rgba(22, 48, 14, 0.98), rgba(10, 20, 8, 0.98)),
-          #0f180d;
-        color: #eaffd6;
-        font-family: "Press Start 2P", "IBM Plex Mono", monospace;
-        font-size: 0.58rem;
-        letter-spacing: 0.06rem;
-        text-shadow: 0 0 10px rgba(108, 255, 87, 0.45);
-        box-shadow:
-          inset 0 0 0 2px rgba(0, 0, 0, 0.35),
-          0 0 0 1px rgba(108, 255, 87, 0.18),
-          0 0 18px rgba(108, 255, 87, 0.26);
-      }
-
-      .preset-button[data-add-layer="datamosh"]:hover {
-        transform: translateY(-1px);
-        box-shadow:
-          inset 0 0 0 2px rgba(0, 0, 0, 0.35),
-          0 0 0 1px rgba(108, 255, 87, 0.24),
-          0 0 24px rgba(108, 255, 87, 0.34);
-      }
-
-      .preset-button[data-add-layer="blu"] {
-        border-color: #0b63ff;
-        color: #0b63ff;
-      }
-
-      .preset-button[data-add-layer="infrared"] {
-        border-color: #ff5a36;
-        color: #ff5a36;
-      }
-
-      .preset-button[data-add-layer="detect"] {
-        border-color: #d62828;
-        color: #d62828;
-      }
-
-      .preset-button[data-add-layer="cluster"] {
-        border-color: #d62828;
-        color: #d62828;
-      }
-
-      .preset-button[data-add-layer="clusterOnly"] {
-        border-color: #ff5a36;
-        color: #ff5a36;
-      }
-
-      .preset-button[data-add-layer="clusterTrack"] {
-        border-color: #7fdcbe;
-        color: #7fdcbe;
-      }
-
-      .preset-button[data-add-layer="monitor"] {
-        border-color: #57d66b;
-        color: #57d66b;
+        gap: 6px;
       }
 
       .preset-panel {
-        margin-top: 12px;
-        border: 1px solid var(--line-soft);
-        padding: 12px;
-        background: #fafafa;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window-soft);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+        padding: 8px;
+      }
+
+      .preset-button[data-add-layer="crt"],
+      .layer-row-card[data-layer-type="crt"] .layer-name,
+      .layer-row-card[data-layer-type="crt"] .layer-type {
+        color: #0a246a;
+      }
+
+      .preset-button[data-add-layer="monitor"],
+      .layer-row-card[data-layer-type="monitor"] .layer-name,
+      .layer-row-card[data-layer-type="monitor"] .layer-type {
+        color: #0c5d2d;
+      }
+
+      .preset-button[data-add-layer="black"],
+      .preset-button[data-add-layer="detect"],
+      .preset-button[data-add-layer="cluster"],
+      .layer-row-card[data-layer-type="black"] .layer-name,
+      .layer-row-card[data-layer-type="black"] .layer-type,
+      .layer-row-card[data-layer-type="detect"] .layer-name,
+      .layer-row-card[data-layer-type="detect"] .layer-type,
+      .layer-row-card[data-layer-type="cluster"] .layer-name,
+      .layer-row-card[data-layer-type="cluster"] .layer-type {
+        color: #4b1f1f;
+      }
+
+      .preset-button[data-add-layer="blu"],
+      .layer-row-card[data-layer-type="blu"] .layer-name,
+      .layer-row-card[data-layer-type="blu"] .layer-type {
+        color: #113f8c;
+      }
+
+      .preset-button[data-add-layer="infrared"],
+      .preset-button[data-add-layer="clusterOnly"],
+      .layer-row-card[data-layer-type="infrared"] .layer-name,
+      .layer-row-card[data-layer-type="infrared"] .layer-type,
+      .layer-row-card[data-layer-type="clusterOnly"] .layer-name,
+      .layer-row-card[data-layer-type="clusterOnly"] .layer-type {
+        color: #8f3f09;
+      }
+
+      .preset-button[data-add-layer="clusterTrack"],
+      .layer-row-card[data-layer-type="clusterTrack"] .layer-name,
+      .layer-row-card[data-layer-type="clusterTrack"] .layer-type {
+        color: #145458;
       }
 
       .layer-list {
         display: grid;
-        gap: 10px;
+        gap: 6px;
       }
 
       .layer-empty {
-        color: var(--muted);
-        font-size: 0.68rem;
-        letter-spacing: 0.05rem;
+        padding: 8px;
+        color: var(--ink-soft);
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window-soft);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+        line-height: 1.45;
       }
 
       .layer-row-card {
-        border: 1px solid var(--line-soft);
-        background: #ffffff;
-        padding: 8px;
+        padding: 6px;
         display: grid;
         gap: 8px;
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window-soft);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
       }
 
       .layer-row-card.selected {
-        border-color: #111111;
-        box-shadow: inset 0 0 0 1px #111111;
-      }
-
-      .layer-row-card[data-layer-type="video"] .layer-name,
-      .layer-row-card[data-layer-type="video"] .layer-type {
-        color: #111111;
-      }
-
-      .layer-row-card[data-layer-type="crt"] .layer-name,
-      .layer-row-card[data-layer-type="crt"] .layer-type {
-        color: #7447ff;
-      }
-
-      .layer-row-card[data-layer-type="crt"] {
-        background: rgba(116, 71, 255, 0.05);
-      }
-
-      .layer-row-card[data-layer-type="datamosh"] .layer-name,
-      .layer-row-card[data-layer-type="datamosh"] .layer-type {
-        color: #57ff74;
-      }
-
-      .layer-row-card[data-layer-type="datamosh"] {
-        background: rgba(87, 255, 116, 0.09);
-      }
-
-      .layer-row-card[data-layer-type="black"] .layer-name,
-      .layer-row-card[data-layer-type="black"] .layer-type {
-        color: #111111;
-      }
-
-      .layer-row-card[data-layer-type="blu"] .layer-name,
-      .layer-row-card[data-layer-type="blu"] .layer-type {
-        color: #0b63ff;
-      }
-
-      .layer-row-card[data-layer-type="blu"] {
-        background: rgba(11, 99, 255, 0.05);
-      }
-
-      .layer-row-card[data-layer-type="infrared"] .layer-name,
-      .layer-row-card[data-layer-type="infrared"] .layer-type {
-        color: #ff5a36;
-      }
-
-      .layer-row-card[data-layer-type="infrared"] {
-        background: rgba(255, 90, 54, 0.08);
-      }
-
-      .layer-row-card[data-layer-type="detect"] .layer-name,
-      .layer-row-card[data-layer-type="detect"] .layer-type {
-        color: #d62828;
-      }
-
-      .layer-row-card[data-layer-type="detect"] {
-        background: rgba(214, 40, 40, 0.08);
-      }
-
-      .layer-row-card[data-layer-type="cluster"] .layer-name,
-      .layer-row-card[data-layer-type="cluster"] .layer-type {
-        color: #d62828;
-      }
-
-      .layer-row-card[data-layer-type="cluster"] {
-        background: rgba(214, 40, 40, 0.05);
-      }
-
-      .layer-row-card[data-layer-type="clusterOnly"] .layer-name,
-      .layer-row-card[data-layer-type="clusterOnly"] .layer-type {
-        color: #ff5a36;
-      }
-
-      .layer-row-card[data-layer-type="clusterOnly"] {
-        background: rgba(255, 90, 54, 0.08);
-      }
-
-      .layer-row-card[data-layer-type="monitor"] .layer-name,
-      .layer-row-card[data-layer-type="monitor"] .layer-type {
-        color: #57d66b;
-      }
-
-      .layer-row-card[data-layer-type="monitor"] {
-        background: rgba(87, 214, 107, 0.08);
-      }
-
-      .layer-row-card[data-layer-type="clusterTrack"] .layer-name,
-      .layer-row-card[data-layer-type="clusterTrack"] .layer-type {
-        color: #7fdcbe;
-      }
-
-      .layer-row-card[data-layer-type="clusterTrack"] {
-        background: rgba(127, 220, 190, 0.09);
-      }
-
-      .layer-row-card[data-layer-type="editor"] .layer-name,
-      .layer-row-card[data-layer-type="editor"] .layer-type {
-        color: #111111;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: #becbe0;
+        box-shadow: inset 1px 1px 0 #7f90ac, inset -1px -1px 0 #eef4ff;
       }
 
       .layer-topline {
@@ -619,151 +729,126 @@
       }
 
       .layer-name {
-        font-family: "Special Elite", monospace;
-        font-size: 0.72rem;
-        line-height: 1.4;
-        text-transform: uppercase;
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .layer-type {
-        color: var(--muted);
-        font-size: 0.6rem;
+        color: var(--ink-soft);
+        font-size: 10px;
         text-transform: uppercase;
-        letter-spacing: 0.08rem;
+        letter-spacing: 0.04em;
       }
 
       .layer-actions {
         display: flex;
-        gap: 4px;
-        flex-wrap: nowrap;
+        gap: 3px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
 
       .mini-button {
-        min-height: 26px;
-        min-width: 26px;
-        padding: 3px 6px;
-        border: 1px solid var(--line-soft);
-        background: #ffffff;
-        color: var(--text);
-        font: inherit;
-        font-size: 0.66rem;
-        letter-spacing: 0.03rem;
-        cursor: pointer;
+        min-height: 22px;
+        min-width: 24px;
+        padding: 0 6px;
+        font-size: 10px;
       }
 
       .mini-button.active {
-        border-color: #111111;
-        background: #111111;
-        color: #ffffff;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: #bcc9de;
+        box-shadow: inset 1px 1px 0 #7f90ac, inset -1px -1px 0 #eef4ff;
       }
 
       .layer-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
+        gap: 8px;
+      }
+
+      .layer-field {
+        display: grid;
+        gap: 4px;
       }
 
       .layer-inline-panel {
-        border-top: 1px solid var(--line-soft);
-        padding-top: 8px;
         display: grid;
-        gap: 8px;
+        gap: 6px;
+        padding-top: 6px;
+        border-top: 1px solid var(--shadow);
       }
 
       .layer-inline-row {
         display: grid;
-        grid-template-columns: 92px 1fr;
+        grid-template-columns: 88px 1fr;
         gap: 8px;
         align-items: center;
-      }
-
-      .layer-inline-row label {
-        color: var(--muted);
-        font-size: 0.56rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08rem;
       }
 
       .layer-inline-control {
         display: grid;
         grid-template-columns: 1fr 42px;
-        gap: 8px;
+        gap: 6px;
         align-items: center;
       }
 
-      .layer-inline-control output {
-        text-align: right;
-      }
-
       .layer-inline-toggle {
-        grid-template-columns: 18px 42px;
+        grid-template-columns: 16px 42px;
         justify-content: end;
-      }
-
-      .layer-field {
-        display: grid;
-        gap: 6px;
-      }
-
-      .layer-field label {
-        color: var(--muted);
-        font-size: 0.56rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08rem;
       }
 
       .layer-opacity {
         display: grid;
-        grid-template-columns: 1fr 52px;
-        gap: 8px;
+        grid-template-columns: 1fr 44px;
+        gap: 6px;
         align-items: center;
       }
 
-      select {
-        width: 100%;
-        min-height: 36px;
-        border: 1px solid var(--line-soft);
-        background: #ffffff;
-        color: var(--text);
-        font: inherit;
-        padding: 0 8px;
+      #video-input,
+      #video-source {
+        display: none;
       }
 
-      @media (max-width: 1080px) {
+      @media (max-width: 1260px) {
         .layout {
           grid-template-columns: 1fr;
         }
 
-        .sidebar-panel {
-          border-right: 0;
-          border-bottom: 1px solid var(--line);
-        }
-
         .stage-panel {
-          border-right: 0;
-          border-bottom: 1px solid var(--line);
+          order: -1;
         }
       }
 
       @media (max-width: 760px) {
         .page {
-          padding: 10px;
+          padding: 14px 10px;
         }
 
-        .stage-copy {
+        .titlebar,
+        .menu-bar,
+        .mode-toolbar {
+          flex-wrap: wrap;
+        }
+
+        .stage-copy,
+        .settings-grid,
+        .preset-grid,
+        .layer-grid {
           grid-template-columns: 1fr;
         }
 
-        .settings-grid {
+        .slider-row,
+        .layer-inline-row {
           grid-template-columns: 1fr;
         }
 
-        .slider-row {
+        .volume-rack {
           grid-template-columns: 1fr;
         }
 
-        .slider-row output {
-          justify-self: start;
+        .transport-readout {
+          width: 100%;
+          justify-items: start;
         }
       }
     </style>
@@ -773,23 +858,38 @@
       <div class="shell">
         <header class="titlebar">
           <div class="titlebar-main">
+            <div class="app-icon" aria-hidden="true"></div>
             <h1>CRT WRLD VIDEO</h1>
-            <div class="titlebar-actions" aria-label="Transport">
-              <button class="icon-button" id="header-play-button" type="button" aria-label="Play">▶</button>
-              <button class="icon-button" id="header-stop-button" type="button" aria-label="Stop">■</button>
-              <button class="icon-button" id="header-reverse-button" type="button" aria-label="Reverse">◀</button>
-              <button class="icon-button" id="header-reset-button" type="button" aria-label="Reset Effects">↺</button>
-            </div>
           </div>
-          <nav class="mode-tabs" aria-label="Modes"></nav>
+          <div class="window-controls" aria-hidden="true">
+            <button class="window-button" type="button" tabindex="-1">_</button>
+            <button class="window-button" type="button" tabindex="-1">□</button>
+            <button class="window-button" type="button" tabindex="-1">×</button>
+          </div>
         </header>
+
+        <div class="menu-shell">
+          <div class="menu-bar" aria-label="Application Menu">
+            <span class="menu-item is-active">File</span>
+            <span class="menu-item">View</span>
+            <span class="menu-item">Play</span>
+            <span class="menu-item">Navigate</span>
+            <span class="menu-item">Favorites</span>
+            <span class="menu-item">Help</span>
+          </div>
+
+          <div class="mode-toolbar">
+            <span class="toolbar-label">Programs</span>
+            <nav class="mode-tabs" aria-label="Modes"></nav>
+          </div>
+        </div>
 
         <main class="layout">
           <aside class="sidebar-panel">
-            <section class="panel-group collapsed" data-panel-group>
+            <section class="panel-group" data-panel-group>
               <div class="panel-head" data-collapsible>
                 <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Video Editor HUD">▾</button>
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Video Editor HUD">▾</button>
                   <h2>Video Editor</h2>
                 </div>
                 <span id="editor-selection-label">Editor Layer</span>
@@ -849,10 +949,10 @@
               </div>
             </section>
 
-            <section class="panel-group collapsed" data-panel-group>
+            <section class="panel-group" data-panel-group>
               <div class="panel-head" data-collapsible>
                 <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Layers HUD">▾</button>
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Layers HUD">▾</button>
                   <h2>Layers</h2>
                 </div>
                 <span>Composite Stack</span>
@@ -865,39 +965,77 @@
           </aside>
 
           <section class="stage-panel">
-            <div id="player-shell">
-              <canvas id="video-canvas" width="1280" height="720"></canvas>
+            <div class="player-window">
+              <div class="player-viewport">
+                <div id="player-shell">
+                  <canvas id="video-canvas" width="1280" height="720"></canvas>
+                </div>
+              </div>
+
+              <div class="transport-strip">
+                <div class="transport-row">
+                  <div class="transport-bank" aria-label="Transport">
+                    <button class="icon-button" id="header-play-button" type="button" aria-label="Play">▶</button>
+                    <button class="icon-button" id="header-stop-button" type="button" aria-label="Stop">■</button>
+                    <button class="icon-button" id="header-reverse-button" type="button" aria-label="Reverse">◀</button>
+                    <button class="icon-button" id="header-reset-button" type="button" aria-label="Reset Effects">↺</button>
+                  </div>
+
+                  <div class="transport-bank transport-bank-secondary">
+                    <button class="button" id="upload-button" type="button">Open Video</button>
+                    <button class="button" id="play-button" type="button">Play / Pause</button>
+                    <button class="button" id="split-button" type="button">Split Screen</button>
+                    <button class="button" id="export-button" type="button">Capture Loop</button>
+                  </div>
+                </div>
+
+                <div class="transport-row">
+                  <div class="volume-rack">
+                    <label for="volume-slider">Volume</label>
+                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="100" />
+                    <output id="volume-output">N/A</output>
+                    <button class="mini-button" id="volume-button" type="button" disabled>No Audio</button>
+                  </div>
+
+                  <div class="transport-readout">
+                    <span class="transport-readout-label">Display</span>
+                    <span class="transport-readout-value">Composite Monitor</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="player-readout">
+                <div class="meta" id="file-name">No file loaded.</div>
+                <div class="meta" id="quality-meta">Balanced quality renders at 72% resolution and caps preview at 30 FPS.</div>
+                <div class="status" id="status-text">Ready. Upload a video for flat playback and export.</div>
+              </div>
+
+              <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
+              <video id="video-source" playsinline loop muted crossorigin="anonymous"></video>
             </div>
 
             <div class="stage-copy">
               <div class="copy-box">
-                <strong>FLAT PLAYER</strong>
-                <span>The video now renders as a clean, flat rectangle with no 3D hover, tilt, or vignette wash.</span>
+                <strong>Playback Surface</strong>
+                <span>Classic square viewport with the live composite in the center and every active transport control docked directly underneath.</span>
               </div>
               <div class="copy-box">
-                <strong>BLACK DATA</strong>
-                <span>Preset mode turns the clip into an inverted monochrome, edge-etched, high-grain corruption pass.</span>
+                <strong>Effect Bus</strong>
+                <span>Use the left cabinet for the stack and editor pass, then add CRT, monitor, detect, cluster, and preset layers from the right rack.</span>
               </div>
             </div>
           </section>
 
           <aside class="control-panel">
-            <section class="panel-group collapsed" data-panel-group>
+            <section class="panel-group" data-panel-group>
               <div class="panel-head" data-collapsible>
                 <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Input HUD">▾</button>
-                  <h2>Input</h2>
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Input HUD">▾</button>
+                  <h2>Render Setup</h2>
                 </div>
-                <span>Video Upload</span>
+                <span>Video Device</span>
               </div>
               <div class="panel-body">
-                <div class="button-grid">
-                  <button class="button" id="upload-button" type="button">Upload Video</button>
-                  <button class="button" id="play-button" type="button">Play / Pause</button>
-                  <button class="button" id="split-button" type="button">Split Screen</button>
-                  <button class="button" id="export-button" type="button">Export Loop</button>
-                </div>
-
                 <div class="settings-grid">
                   <div class="layer-field">
                     <label for="quality-select">Render Quality</label>
@@ -907,6 +1045,7 @@
                       <option value="quality">Quality 100%</option>
                     </select>
                   </div>
+
                   <div class="layer-field">
                     <label for="fps-select">FPS Cap</label>
                     <select id="fps-select">
@@ -917,41 +1056,27 @@
                   </div>
                 </div>
 
-                <div class="slider-grid" style="margin-top: 12px;">
-                  <div class="slider-row">
-                    <label for="volume-slider">Video Vol</label>
-                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="100" />
-                    <output id="volume-output">N/A</output>
-                  </div>
+                <div class="copy-box">
+                  <strong>Classic Deck Layout</strong>
+                  <span>Open, playback, split-screen, export, audio, file state, and quality readouts all live under the preview, like a single media-player console.</span>
                 </div>
-                <div class="button-grid" style="margin-top: 12px;">
-                  <button class="button" id="volume-button" type="button" disabled>No Audio</button>
-                </div>
-
-                <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
-                <video id="video-source" playsinline loop muted crossorigin="anonymous"></video>
-
-                <div class="meta" id="file-name">No file loaded.</div>
-                <div class="meta" id="quality-meta">Balanced quality renders at 72% resolution and caps preview at 30 FPS.</div>
-                <div class="status" id="status-text">Ready. Upload a video for flat playback and export.</div>
               </div>
             </section>
 
-            <section class="panel-group collapsed" data-panel-group>
+            <section class="panel-group" data-panel-group>
               <div class="panel-head" data-collapsible>
                 <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Tuning HUD">▾</button>
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Tuning HUD">▾</button>
                   <h2>Effects</h2>
                 </div>
                 <span id="layer-selection-label">Effects</span>
               </div>
               <div class="panel-body">
-                <div class="panel-head" style="padding: 0 0 10px; border: 0; background: transparent;">
+                <div class="panel-head" style="padding: 0 0 6px; border: 0; background: transparent; box-shadow: none;">
                   <h2>Add Layer</h2>
-                  <span>Effects</span>
+                  <span>Insert Rack</span>
                 </div>
                 <div class="preset-grid">
-                  <button class="button preset-button" data-add-layer="datamosh" type="button">DATAMOSH</button>
                   <button class="button preset-button" data-add-layer="crt" type="button">CRT Pass</button>
                   <button class="button preset-button" data-add-layer="monitor" type="button">CRT Monitor</button>
                   <button class="button preset-button" data-add-layer="black" type="button">Black Data</button>
