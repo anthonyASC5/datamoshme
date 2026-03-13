@@ -14,6 +14,7 @@ const BLEND_MODE_OPTIONS = [
   { value: "subtract", label: "Subtract" },
 ];
 
+// these blend modes map ui labels to the canvas composite pass.
 function defaultLayerParams(type) {
   if (type === "crt") {
     return { glow: 0.4, rgb: 0.003, scan: 0.04, edgeGlow: 0.28 };
@@ -100,7 +101,7 @@ function defaultLayerParams(type) {
       contrast: 1,
       highlights: 0,
       shadows: 0,
-      sharpness: 0.35,
+      sharpness: 0,
       edgeGlow: 0,
       crtGlow: 0,
     };
@@ -152,6 +153,7 @@ export function createLayerEditor({
   createLayerRuntime,
   getCanvasSize,
   hasSource,
+  requestRender,
   setStatus,
   setOutput,
   markControlTouched,
@@ -176,6 +178,11 @@ export function createLayerEditor({
 
   function getVisibleLayers() {
     return layers.filter((layer) => layer.type !== "editor");
+  }
+
+  // this keeps paused previews in sync after layer changes.
+  function notifyRender() {
+    requestRender?.();
   }
 
   function buildLayerName(type) {
@@ -271,6 +278,7 @@ export function createLayerEditor({
     return controls;
   }
 
+  // this rebuilds the layer cards whenever the stack changes.
   function renderLayerList() {
     dom.layersList.innerHTML = "";
     const visibleLayers = getVisibleLayers();
@@ -328,6 +336,7 @@ export function createLayerEditor({
       blendSelect.addEventListener("click", (event) => event.stopPropagation());
       blendSelect.addEventListener("change", (event) => {
         layer.blend = event.target.value;
+        notifyRender();
       });
 
       opacityInput.addEventListener("click", (event) => event.stopPropagation());
@@ -335,6 +344,7 @@ export function createLayerEditor({
         layer.opacity = Number(event.target.value);
         opacityInput.classList.add("touched");
         opacityOutput.value = `${Math.round(layer.opacity * 100)}%`;
+        notifyRender();
       });
 
       row.querySelectorAll("[data-action]").forEach((button) => {
@@ -348,6 +358,7 @@ export function createLayerEditor({
           if (action === "toggle-visibility") {
             layer.visible = !layer.visible;
             renderLayerList();
+            notifyRender();
             return;
           }
           if (action === "toggle-controls") {
@@ -394,6 +405,7 @@ export function createLayerEditor({
           markControlTouched(slider);
           const output = row.querySelector(`[data-inline-output="${key}"]`);
           setOutput(output, value);
+          notifyRender();
         });
       });
 
@@ -406,6 +418,7 @@ export function createLayerEditor({
           markControlTouched(toggle);
           const output = row.querySelector(`[data-inline-output="${key}"]`);
           setOutput(output, toggle.checked ? "On" : "Off");
+          notifyRender();
         });
       });
 
@@ -413,6 +426,7 @@ export function createLayerEditor({
     });
   }
 
+  // this mirrors the selected layer state back into the adjustments panel.
   function syncControlsFromSelection() {
     const layer = getSelectedLayer();
     const editorLayer = getEditorLayer();
@@ -446,6 +460,7 @@ export function createLayerEditor({
     setControlsDisabled(dom.editorControls, !editorLayer);
   }
 
+  // the base video layer is created lazily after a source loads.
   function ensureBaseLayer() {
     const baseLayer = layers.find((layer) => layer.type === "video");
     if (baseLayer) {
@@ -467,6 +482,7 @@ export function createLayerEditor({
     return layer;
   }
 
+  // the adjustments layer stays at the top of the stack.
   function ensureEditorLayer() {
     const existing = getEditorLayer();
     if (existing) {
@@ -493,10 +509,12 @@ export function createLayerEditor({
     selectedLayerId = layer.id;
     renderLayerList();
     syncControlsFromSelection();
+    notifyRender();
     setStatus(`${layerLabelForType(type)} layer added.`);
     trackLayerAdd(type);
   }
 
+  // duplicate and delete keep the stack order stable for the compositor.
   function duplicateLayer(layerId) {
     const original = getLayerById(layerId);
     if (!original || original.type === "video" || original.type === "editor") {
@@ -516,6 +534,7 @@ export function createLayerEditor({
     selectedLayerId = duplicate.id;
     renderLayerList();
     syncControlsFromSelection();
+    notifyRender();
   }
 
   function deleteLayer(layerId) {
@@ -531,6 +550,7 @@ export function createLayerEditor({
     }
     renderLayerList();
     syncControlsFromSelection();
+    notifyRender();
   }
 
   function moveLayer(layerId, direction) {
@@ -561,6 +581,7 @@ export function createLayerEditor({
     layers.splice(index, 1);
     layers.splice(targetIndex, 0, moving);
     renderLayerList();
+    notifyRender();
   }
 
   function resizeRuntimes(width, height) {
@@ -575,6 +596,7 @@ export function createLayerEditor({
       layer.runtime.ghostCanvas.height = height;
       layer.runtime.auxCanvas.width = width;
       layer.runtime.auxCanvas.height = height;
+      layer.runtime.presetGhostData = null;
     });
   }
 
@@ -603,6 +625,7 @@ export function createLayerEditor({
     selectedLayerId = baseLayer?.id ?? null;
     renderLayerList();
     syncControlsFromSelection();
+    notifyRender();
   }
 
   return {

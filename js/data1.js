@@ -6,6 +6,8 @@ const playButton = document.getElementById("play-button");
 const pauseButton = document.getElementById("pause-button");
 const stopButton = document.getElementById("stop-button");
 const restartButton = document.getElementById("restart-button");
+const startMoshButton = document.getElementById("start-mosh-button");
+const stopMoshButton = document.getElementById("stop-mosh-button");
 const recordButton = document.getElementById("record-button");
 const resetButton = document.getElementById("reset-button");
 const fileInput = document.getElementById("file-input");
@@ -16,6 +18,7 @@ const timelineLabel = document.getElementById("timeline-label");
 const sourceMeta = document.getElementById("source-meta");
 const logOutput = document.getElementById("log-output");
 
+// this canvas is the final stage output for the data1 relay.
 const stageCtx = stageCanvas.getContext("2d", { alpha: false });
 
 let encoder = null;
@@ -27,10 +30,12 @@ let useKeyFrame = false;
 let webcamStream = null;
 let fileObjectUrl = null;
 let activeSourceMode = "";
+let isMoshActive = false;
 let recorder = null;
 let recordedChunks = [];
 let recordingStream = null;
 
+// mediarecorder support changes by browser, so this picks the first usable webm profile.
 function getRecordingMimeType() {
   const candidates = [
     "video/webm;codecs=vp9",
@@ -150,6 +155,27 @@ function appendLog(message) {
   logOutput.textContent = `[${timestamp}] ${message}\n${logOutput.textContent}`.slice(0, 16000);
 }
 
+function waitForVideoData() {
+  return new Promise((resolve, reject) => {
+    const handleLoaded = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Video data could not be loaded."));
+    };
+    const cleanup = () => {
+      sourceVideo.removeEventListener("loadeddata", handleLoaded);
+      sourceVideo.removeEventListener("error", handleError);
+    };
+
+    sourceVideo.addEventListener("loadeddata", handleLoaded, { once: true });
+    sourceVideo.addEventListener("error", handleError, { once: true });
+  });
+}
+
+// the stage follows the browser viewport so the relay always fills the shell.
 function updateCanvasSize() {
   stageCanvas.width = Math.max(640, window.innerWidth);
   stageCanvas.height = Math.max(360, window.innerHeight);
@@ -158,6 +184,28 @@ function updateCanvasSize() {
 function clearStage() {
   stageCtx.fillStyle = "#000000";
   stageCtx.fillRect(0, 0, stageCanvas.width, stageCanvas.height);
+}
+
+function drawSourceFrame() {
+  if (sourceVideo.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    clearStage();
+    return;
+  }
+
+  stageCtx.clearRect(0, 0, stageCanvas.width, stageCanvas.height);
+  stageCtx.drawImage(sourceVideo, 0, 0, stageCanvas.width, stageCanvas.height);
+}
+
+function shouldAnimateSource() {
+  return Boolean(activeSourceMode && !sourceVideo.paused);
+}
+
+function requestStageRefresh() {
+  if (!activeSourceMode || animationFrame) {
+    return;
+  }
+
+  animationFrame = requestAnimationFrame(drawLoop);
 }
 
 function stopLoop() {
@@ -205,6 +253,9 @@ function stopSource() {
   sourceVideo.removeAttribute("src");
   sourceVideo.load();
   activeSourceMode = "";
+  isMoshActive = false;
+  setSourceButtonState("");
+  setMoshButtonState();
 }
 
 function sourceLabel() {
@@ -214,6 +265,13 @@ function sourceLabel() {
 function setSourceButtonState(mode) {
   startButton.classList.toggle("active", mode === "camera");
   importButton.classList.toggle("active", mode === "file");
+}
+
+function setMoshButtonState() {
+  const hasSource = Boolean(activeSourceMode);
+  startMoshButton.disabled = !hasSource || isMoshActive;
+  stopMoshButton.disabled = !hasSource || !isMoshActive;
+  startMoshButton.classList.toggle("primary", isMoshActive);
 }
 
 function cloneChunk(chunk) {
@@ -227,6 +285,7 @@ function cloneChunk(chunk) {
   });
 }
 
+// webcodecs replays non-key frames multiple times to create the simple data1 smear.
 function handleEncodedChunk(chunk) {
   if (!decoder || decoder.state !== "configured") {
     return;
@@ -242,25 +301,152 @@ function handleEncodedChunk(chunk) {
 }
 
 function handleDecodedFrame(frame) {
+  if (!isMoshActive) {
+    frame.close();
+    return;
+  }
+
   stageCtx.clearRect(0, 0, stageCanvas.width, stageCanvas.height);
   stageCtx.drawImage(frame, 0, 0, stageCanvas.width, stageCanvas.height);
+  setTimeline(`Mosh • x${speed}`);
   frame.close();
 }
 
 function drawLoop() {
-  if (isWebCodecsReady && sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    try {
-      const frame = new VideoFrame(sourceVideo);
-      encoder.encode(frame, { keyFrame: useKeyFrame });
-      useKeyFrame = false;
-      frame.close();
-      setTimeline(`Live • x${speed}`);
-    } catch (error) {
-      appendLog(`Frame encode skipped: ${error.message}`);
+  if (sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    if (isMoshActive && isWebCodecsReady) {
+      try {
+        const frame = new VideoFrame(sourceVideo);
+        encoder.encode(frame, { keyFrame: useKeyFrame });
+        useKeyFrame = false;
+        frame.close();
+      } catch (error) {
+        appendLog(`Frame encode skipped: ${error.message}`);
+      }
+    } else {
+      drawSourceFrame();
+      setTimeline(`${sourceLabel()} • clean`);
     }
   }
 
-  animationFrame = requestAnimationFrame(drawLoop);
+  if (shouldAnimateSource()) {
+    animationFrame = requestAnimationFrame(drawLoop);
+    return;
+  }
+
+  animationFrame = 0;
+}
+
+async function loadCameraSource() {
+  stopLoop();
+  clearStage();
+  setStatus("Starting webcam...");
+  stopSource();
+  setMoshButtonState();
+  await destroyCodecs();
+  await startWebcam();
+  drawSourceFrame();
+  setTimeline("Camera • clean");
+  setStatus("Camera ready. Mosh off.");
+  setMoshButtonState();
+  requestStageRefresh();
+}
+
+async function loadUploadedSource(file) {
+  stopLoop();
+  clearStage();
+  setStatus("Loading uploaded video...");
+  stopSource();
+  setMoshButtonState();
+  await destroyCodecs();
+  await startUploadedVideo(file);
+  drawSourceFrame();
+  setTimeline("Video • clean");
+  setStatus("Video ready. Mosh off.");
+  setMoshButtonState();
+  requestStageRefresh();
+}
+
+async function startMosh() {
+  if (!activeSourceMode) {
+    setStatus("Load a source first.");
+    return;
+  }
+
+  if (isMoshActive) {
+    return;
+  }
+
+  await setupWebCodecs();
+  isMoshActive = true;
+  useKeyFrame = true;
+  setMoshButtonState();
+  setStatus("Mosh running.");
+  appendLog("Mosh started.");
+  requestStageRefresh();
+}
+
+function stopMosh() {
+  if (!activeSourceMode || !isMoshActive) {
+    return;
+  }
+
+  isMoshActive = false;
+  useKeyFrame = true;
+  drawSourceFrame();
+  setTimeline(`${sourceLabel()} • clean`);
+  setStatus("Mosh stopped.");
+  appendLog("Mosh stopped.");
+  setMoshButtonState();
+  requestStageRefresh();
+}
+
+async function playActiveSource() {
+  if (!activeSourceMode) {
+    setStatus("Load a source first.");
+    return;
+  }
+  await sourceVideo.play();
+  requestStageRefresh();
+  setStatus(`${sourceLabel()} playing.`);
+}
+
+function pauseActiveSource() {
+  if (!activeSourceMode) {
+    setStatus("Load a source first.");
+    return;
+  }
+  sourceVideo.pause();
+  requestStageRefresh();
+  setStatus(`${sourceLabel()} paused.`);
+}
+
+function stopActiveSource() {
+  if (!activeSourceMode) {
+    setStatus("Load a source first.");
+    return;
+  }
+  sourceVideo.pause();
+  if (activeSourceMode === "file") {
+    sourceVideo.currentTime = 0;
+  }
+  useKeyFrame = true;
+  requestStageRefresh();
+  setStatus(`${sourceLabel()} stopped.`);
+}
+
+async function restartActiveSource() {
+  if (!activeSourceMode) {
+    setStatus("Load a source first.");
+    return;
+  }
+  if (activeSourceMode === "file") {
+    sourceVideo.currentTime = 0;
+  }
+  useKeyFrame = true;
+  await sourceVideo.play();
+  requestStageRefresh();
+  setStatus(`${sourceLabel()} restarted.`);
 }
 
 async function startWebcam() {
@@ -277,9 +463,7 @@ async function startWebcam() {
   sourceVideo.muted = true;
   sourceVideo.playsInline = true;
 
-  await new Promise((resolve) => {
-    sourceVideo.onloadeddata = () => resolve();
-  });
+  await waitForVideoData();
 
   await sourceVideo.play();
   activeSourceMode = "camera";
@@ -294,10 +478,9 @@ async function startUploadedVideo(file) {
   sourceVideo.muted = true;
   sourceVideo.playsInline = true;
   sourceVideo.loop = false;
+  sourceVideo.load();
 
-  await new Promise((resolve) => {
-    sourceVideo.onloadeddata = () => resolve();
-  });
+  await waitForVideoData();
 
   await sourceVideo.play();
   activeSourceMode = "file";
@@ -342,74 +525,10 @@ async function setupWebCodecs() {
   appendLog(`WebCodecs ready at ${stageCanvas.width}x${stageCanvas.height}`);
 }
 
-async function startDatamoshVideo() {
-  stopLoop();
-  clearStage();
-  setStatus("Starting webcam...");
-  stopSource();
-  await startWebcam();
-  await setupWebCodecs();
-  setStatus("Datamosh running.");
-  drawLoop();
-}
-
-async function startDatamoshUpload(file) {
-  stopLoop();
-  clearStage();
-  setStatus("Loading uploaded video...");
-  stopSource();
-  await startUploadedVideo(file);
-  await setupWebCodecs();
-  setStatus("Datamosh running.");
-  drawLoop();
-}
-
-async function playActiveSource() {
-  if (!activeSourceMode) {
-    setStatus("Load a source first.");
-    return;
-  }
-  await sourceVideo.play();
-  setStatus(`${sourceLabel()} playing.`);
-}
-
-function pauseActiveSource() {
-  if (!activeSourceMode) {
-    setStatus("Load a source first.");
-    return;
-  }
-  sourceVideo.pause();
-  setStatus(`${sourceLabel()} paused.`);
-}
-
-function stopActiveSource() {
-  if (!activeSourceMode) {
-    setStatus("Load a source first.");
-    return;
-  }
-  sourceVideo.pause();
-  if (activeSourceMode === "file") {
-    sourceVideo.currentTime = 0;
-  }
-  useKeyFrame = true;
-  setStatus(`${sourceLabel()} stopped.`);
-}
-
-async function restartActiveSource() {
-  if (!activeSourceMode) {
-    setStatus("Load a source first.");
-    return;
-  }
-  if (activeSourceMode === "file") {
-    sourceVideo.currentTime = 0;
-  }
-  useKeyFrame = true;
-  await sourceVideo.play();
-  setStatus(`${sourceLabel()} restarted.`);
-}
+// these actions switch sources, transport state, and keyframe timing.
 
 startButton.addEventListener("click", () => {
-  startDatamoshVideo().catch((error) => {
+  loadCameraSource().catch((error) => {
     console.error(error);
     setStatus("Camera start failed.");
     appendLog(`ERROR: ${error.message}`);
@@ -417,6 +536,7 @@ startButton.addEventListener("click", () => {
 });
 
 importButton.addEventListener("click", () => {
+  fileInput.value = "";
   fileInput.click();
 });
 
@@ -426,7 +546,7 @@ fileInput.addEventListener("change", () => {
     return;
   }
 
-  startDatamoshUpload(file).catch((error) => {
+  loadUploadedSource(file).catch((error) => {
     console.error(error);
     setStatus("Upload failed.");
     appendLog(`ERROR: ${error.message}`);
@@ -457,6 +577,18 @@ restartButton.addEventListener("click", () => {
   });
 });
 
+startMoshButton.addEventListener("click", () => {
+  startMosh().catch((error) => {
+    console.error(error);
+    setStatus("Mosh start failed.");
+    appendLog(`ERROR: ${error.message}`);
+  });
+});
+
+stopMoshButton.addEventListener("click", () => {
+  stopMosh();
+});
+
 resetButton.addEventListener("click", () => {
   useKeyFrame = true;
   setStatus("Next frame forced as keyframe.");
@@ -477,14 +609,34 @@ speedSlider.addEventListener("input", () => {
   speedOutput.value = String(speed);
 });
 
+// resize rebuilds the codec chain so the relay matches the new canvas size.
 window.addEventListener("resize", async () => {
   updateCanvasSize();
   clearStage();
   if (!webcamStream && !fileObjectUrl) {
     return;
   }
-  await setupWebCodecs();
+  if (isMoshActive || isWebCodecsReady) {
+    await setupWebCodecs();
+  }
   useKeyFrame = true;
+  requestStageRefresh();
+});
+
+sourceVideo.addEventListener("play", () => {
+  requestStageRefresh();
+});
+
+sourceVideo.addEventListener("pause", () => {
+  requestStageRefresh();
+});
+
+sourceVideo.addEventListener("seeked", () => {
+  requestStageRefresh();
+});
+
+sourceVideo.addEventListener("ended", () => {
+  requestStageRefresh();
 });
 
 window.addEventListener("beforeunload", async () => {
@@ -494,6 +646,7 @@ window.addEventListener("beforeunload", async () => {
   await destroyCodecs();
 });
 
+// this final setup primes the idle ui before any source is loaded.
 updateCanvasSize();
 clearStage();
 speedOutput.value = String(speed);
@@ -501,3 +654,4 @@ setTimeline("Idle");
 setStatus("Use Camera or Upload Video to start.");
 appendLog("Datamosh ready.");
 setRecordingState(false);
+setMoshButtonState();

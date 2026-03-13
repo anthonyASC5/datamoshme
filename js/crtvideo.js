@@ -1,6 +1,7 @@
 import { createLayerEditor } from "./crtvideo-layer-editor.js";
 import { createVideoVolumeController } from "./video-volume.js";
 
+// these presets scale the working buffers before effects are composited.
 const LOOP_DURATION = 7;
 const MAX_EXPORT_WIDTH = 1280;
 const MIN_RENDER_WIDTH = 64;
@@ -62,11 +63,7 @@ const BLEND_MODE_MAP = {
   exclusion: "exclusion",
   subtract: "subtract",
 };
-const FILTER_JS_SCRIPT_URLS = Object.freeze([
-  "https://cdn.jsdelivr.net/gh/foo123/FILTER.js@1.13.0/build/filter.min.js",
-  "https://cdn.jsdelivr.net/gh/foo123/FILTER.js/build/filter.min.js",
-  "https://rawcdn.githack.com/foo123/FILTER.js/master/build/filter.min.js",
-]);
+// these extra controls feed the editor pass and small webgl shader.
 const EDITOR_EXTRA_EFFECT_CONFIG = Object.freeze([
   { key: "solarize", label: "Solarize", min: 0, max: 1, step: 0.01, defaultValue: 0 },
   { key: "redChannel", label: "Red Channel", min: 0, max: 1, step: 0.01, defaultValue: 0 },
@@ -77,11 +74,6 @@ const EDITOR_EXTRA_EFFECT_CONFIG = Object.freeze([
 const EDITOR_EXTRA_DEFAULTS = Object.freeze(
   Object.fromEntries(EDITOR_EXTRA_EFFECT_CONFIG.map((entry) => [entry.key, entry.defaultValue])),
 );
-const EDITOR_WEBGL_EFFECT_KEYS = new Set([
-  "solarize",
-  "redChannel",
-  "hueGreyscale",
-]);
 const fileInput = document.getElementById("video-input");
 const sourceVideo = document.getElementById("video-source");
 const canvas = document.getElementById("video-canvas");
@@ -151,7 +143,6 @@ let reversePlaybackStamp = 0;
 let currentQuality = qualitySelect?.value || "balanced";
 let targetFps = Number(fpsSelect?.value || 30);
 let lastRenderAt = 0;
-let filterJsLoadPromise = null;
 const extraEditorControls = new Map();
 const volumeController = createVideoVolumeController({
   media: sourceVideo,
@@ -170,11 +161,6 @@ function clamp(value, min, max) {
 
 function mix(start, end, amount) {
   return start + (end - start) * amount;
-}
-
-function smoothstep(edge0, edge1, value) {
-  const t = clamp((value - edge0) / Math.max(0.000001, edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
 }
 
 function wrapUnit(value) {
@@ -218,6 +204,7 @@ function applyPerformanceSettings() {
   resetFrameAnalysisState();
   if (sourceVideo.videoWidth && sourceVideo.videoHeight) {
     resizeBuffers(sourceVideo.videoWidth, sourceVideo.videoHeight);
+    requestPreviewRefresh();
   }
 }
 
@@ -279,6 +266,15 @@ function getLayers() {
   return layerEditor ? layerEditor.getLayers() : [];
 }
 
+// this guards paused refreshes and disabled buttons from rendering empty frames.
+function hasSourceFrame() {
+  return Boolean(sourceVideo.src && sourceVideo.videoWidth && sourceVideo.videoHeight);
+}
+
+function needsContinuousRender() {
+  return Boolean((hasSourceFrame() && !sourceVideo.paused) || reversePlaybackHandle || isRecording);
+}
+
 function createLayerRuntime(width = canvas.width || 1280, height = canvas.height || 720) {
   const layerCanvas = document.createElement("canvas");
   const layerCtx = layerCanvas.getContext("2d", { alpha: true });
@@ -296,6 +292,7 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
     ghostCtx,
     auxCanvas,
     auxCtx,
+    presetGhostData: null,
     detectState: {
       history: [],
       activeAverage: 0,
@@ -303,6 +300,7 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
   };
 }
 
+// this fits the live source into the working buffer with letterboxing.
 function drawVideoFit(video, targetCtx) {
   const sw = video.videoWidth;
   const sh = video.videoHeight;
@@ -428,6 +426,7 @@ function rgbToHsvNormalized(red, green, blue) {
   };
 }
 
+// these helpers keep saved editor params compatible with the current control set.
 function ensureEditorExtraParams(layer) {
   if (!layer || layer.type !== "editor") {
     return layer;
@@ -475,6 +474,7 @@ function createEditorExtraSliderRow(config) {
   return row;
 }
 
+// this appends the extra editor controls after the base adjustment sliders.
 function injectEditorExtraControls() {
   if (!editorControls || extraEditorControls.size) {
     return;
@@ -518,9 +518,7 @@ function bindEditorExtraControls() {
       }
       editorLayer.params[key] = Number(control.input.value);
       setOutput(control.output, editorLayer.params[key]);
-      if (EDITOR_WEBGL_EFFECT_KEYS.has(key) && editorLayer.params[key] > 0.001) {
-        ensureFilterJsLibrary();
-      }
+      requestPreviewRefresh();
     });
 
     control.input.addEventListener("pointerdown", () => {
@@ -535,6 +533,7 @@ function initializeEditorExtraControls() {
   syncEditorExtraControls();
 }
 
+// this extends the shared layer editor with crt-specific adjustment sliders.
 function extendLayerEditorForExtraEffects(editor) {
   const originalEnsureEditorLayer = editor.ensureEditorLayer.bind(editor);
   const originalGetEditorLayer = editor.getEditorLayer.bind(editor);
@@ -558,54 +557,7 @@ function extendLayerEditorForExtraEffects(editor) {
   return editor;
 }
 
-function ensureFilterJsLibrary() {
-  if (window.FILTER) {
-    return Promise.resolve(window.FILTER);
-  }
-
-  if (filterJsLoadPromise) {
-    return filterJsLoadPromise;
-  }
-
-  filterJsLoadPromise = new Promise((resolve) => {
-    let currentIndex = 0;
-    const loadNext = () => {
-      if (window.FILTER) {
-        resolve(window.FILTER);
-        return;
-      }
-
-      const src = FILTER_JS_SCRIPT_URLS[currentIndex];
-      currentIndex += 1;
-      if (!src) {
-        resolve(null);
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = src;
-      script.async = true;
-      script.onload = () => {
-        if (window.FILTER) {
-          resolve(window.FILTER);
-          return;
-        }
-        script.remove();
-        loadNext();
-      };
-      script.onerror = () => {
-        script.remove();
-        loadNext();
-      };
-      document.head.append(script);
-    };
-
-    loadNext();
-  });
-
-  return filterJsLoadPromise;
-}
-
+// this webgl helper runs the small shader path for the editor extras.
 function createEditorShader(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -649,6 +601,7 @@ function editorWebGLEffectsActive(params) {
   );
 }
 
+// this lazily creates the editor webgl state the first time it is needed.
 function ensureEditorWebGLState(runtime, width, height) {
   if (runtime.editorWebglState?.available) {
     const existing = runtime.editorWebglState;
@@ -664,7 +617,6 @@ function ensureEditorWebGLState(runtime, width, height) {
     return runtime.editorWebglState;
   }
 
-  ensureFilterJsLibrary();
   const webglCanvas = document.createElement("canvas");
   webglCanvas.width = width;
   webglCanvas.height = height;
@@ -804,6 +756,7 @@ function applyEditorWebGLPass(targetCtx, params, runtime) {
   return true;
 }
 
+// this cpu path mirrors the shader effects when webgl is unavailable.
 function applyEditorAdvancedCpuFallback(targetCtx, params) {
   const width = targetCtx.canvas.width;
   const height = targetCtx.canvas.height;
@@ -854,6 +807,7 @@ function applyEditorAdvancedCpuFallback(targetCtx, params) {
   targetCtx.putImageData(imageData, 0, 0);
 }
 
+// this pass groups nearby hue blocks into simple fills and outlines.
 function applyHueConnectedComponentsPass(targetCtx, params, runtime) {
   const fillAmount = clamp(getEditorExtraValue(params, "hueConnectedComponents"), 0, 1);
   const contourAmount = clamp(getEditorExtraValue(params, "hueConnectedContours"), 0, 1);
@@ -1027,6 +981,7 @@ function applyHueConnectedComponentsPass(targetCtx, params, runtime) {
   }
 }
 
+// this resize keeps every working canvas aligned to the selected render quality.
 function resizeBuffers(videoWidth = 1280, videoHeight = 720) {
   const preset = getQualityPreset();
   const scale = Math.min(Math.min(MAX_EXPORT_WIDTH / videoWidth, 1) * preset.scale, 1);
@@ -1056,10 +1011,11 @@ function togglePanel(head) {
   }
 }
 
+// this preset builder handles the black data and blu stylized layers.
 function buildPresetImage(imageData, elapsed, layer) {
   const { width, height, data } = imageData;
   const out = new Uint8ClampedArray(data.length);
-  const ghost = layer.runtime.ghostCtx.getImageData(0, 0, width, height).data;
+  const ghost = layer.runtime.presetGhostData || new Uint8ClampedArray(data.length);
   const params = layer.params;
   const grainCell = 1 + Math.floor(((Math.sin(elapsed * 7) + 1) * 0.5) * (2 + params.grit * 3));
   const textureCell = Math.max(1, Math.round(1 + params.grit * 1.5));
@@ -1130,9 +1086,11 @@ function buildPresetImage(imageData, elapsed, layer) {
     }
   }
 
+  layer.runtime.presetGhostData = out.slice();
   return new ImageData(out, width, height);
 }
 
+// this infrared pass remaps luma into a false-color thermal look.
 function buildInfraredImage(imageData, elapsed, layer) {
   const { width, height, data } = imageData;
   const out = new Uint8ClampedArray(data.length);
@@ -1162,6 +1120,7 @@ function buildInfraredImage(imageData, elapsed, layer) {
   return new ImageData(out, width, height);
 }
 
+// this layer tracks bright moving edges and turns them into boxes and trails.
 function renderClusterLayer(layer, sourceImageData, elapsed) {
   const { width, height, data } = sourceImageData;
   const previousData = previousSourceImageData ? previousSourceImageData.data : null;
@@ -1346,6 +1305,7 @@ function renderClusterLayer(layer, sourceImageData, elapsed) {
   targetCtx.restore();
 }
 
+// this monitor layer builds the green phosphor crt overlay.
 function renderMonitorLayer(layer, sourceImageData, elapsed) {
   const { width, height, data } = sourceImageData;
   const targetCtx = layer.runtime.ctx;
@@ -1399,6 +1359,7 @@ function renderMonitorLayer(layer, sourceImageData, elapsed) {
   targetCtx.restore();
 }
 
+// this crt layer adds scanlines, rgb shift, glow, and edge bloom.
 function renderCrtLayer(layer, sourceImageData) {
   const targetCtx = layer.runtime.ctx;
   const { width, height } = targetCtx.canvas;
@@ -1501,6 +1462,7 @@ function renderCrtLayer(layer, sourceImageData) {
   }
 }
 
+// these preset wrappers push generated images back into layer canvases.
 function renderPresetLayer(layer, sourceImageData, elapsed) {
   const processed = buildPresetImage(sourceImageData, elapsed, layer);
   layer.runtime.ctx.clearRect(0, 0, processed.width, processed.height);
@@ -1545,6 +1507,7 @@ function renderInfraredLayer(layer, sourceImageData, elapsed) {
   targetCtx.restore();
 }
 
+// this detect layer compares the current frame to the previous one for motion blocks.
 function renderDetectLayer(layer, sourceImageData) {
   const { width, height, data } = sourceImageData;
   const previousData = previousSourceImageData?.data;
@@ -1653,6 +1616,7 @@ function renderDetectLayer(layer, sourceImageData) {
   ghostCtx.drawImage(targetCtx.canvas, 0, 0);
 }
 
+// this editor pass runs the main per-frame adjustments before compositing.
 function applyEditorPass(targetCtx, params, runtime) {
   const width = targetCtx.canvas.width;
   const height = targetCtx.canvas.height;
@@ -1781,6 +1745,7 @@ function applyEditorPass(targetCtx, params, runtime) {
   }
 }
 
+// this dispatches each effect layer to its renderer.
 function renderLayer(layer, sourceImageData, elapsed) {
   if (layer.type === "video") {
     layer.runtime.ctx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
@@ -1841,6 +1806,7 @@ function renderLayer(layer, sourceImageData, elapsed) {
   }
 }
 
+// this blends each rendered layer into the composite output buffer.
 function compositeLayer(layer) {
   if (!layer.visible) {
     return;
@@ -1885,6 +1851,7 @@ function compositeLayer(layer) {
   compositeCtx.restore();
 }
 
+// this builds the composite frame from the visible layer stack.
 function renderCompositeFrame(elapsed) {
   compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
   compositeCtx.fillStyle = "#000000";
@@ -1918,14 +1885,15 @@ function drawOutputFrame() {
   }
 }
 
+// this render step runs once for paused previews and loops while playback is active.
 function renderFrame(timestamp = 0) {
-  if (!sourceVideo.videoWidth || !sourceVideo.videoHeight) {
+  if (!hasSourceFrame()) {
     renderHandle = 0;
     return;
   }
 
   const frameInterval = 1000 / targetFps;
-  if (lastRenderAt && timestamp - lastRenderAt < frameInterval) {
+  if (needsContinuousRender() && lastRenderAt && timestamp - lastRenderAt < frameInterval) {
     renderHandle = requestAnimationFrame(renderFrame);
     return;
   }
@@ -1934,10 +1902,27 @@ function renderFrame(timestamp = 0) {
   drawVideoFit(sourceVideo, sourceCtx);
   renderCompositeFrame(timestamp / 1000);
   drawOutputFrame();
-  renderHandle = requestAnimationFrame(renderFrame);
+
+  if (needsContinuousRender()) {
+    renderHandle = requestAnimationFrame(renderFrame);
+    return;
+  }
+
+  renderHandle = 0;
+  lastRenderAt = 0;
 }
 
 function ensureLoop() {
+  if (hasSourceFrame() && !renderHandle) {
+    renderHandle = requestAnimationFrame(renderFrame);
+  }
+}
+
+function requestPreviewRefresh() {
+  if (!hasSourceFrame()) {
+    return;
+  }
+  lastRenderAt = 0;
   if (!renderHandle) {
     renderHandle = requestAnimationFrame(renderFrame);
   }
@@ -1960,6 +1945,7 @@ function revokeActiveUrl() {
   }
 }
 
+// this loads a new source clip and rebuilds the crt stack around it.
 async function loadVideo(file) {
   if (!file || !file.type.startsWith("video/")) {
     setStatus("Unsupported file type. Use MP4, WebM, or MOV.");
@@ -1999,7 +1985,7 @@ async function loadVideo(file) {
   layerEditor.syncControlsFromSelection();
   fileNameText.textContent = `${file.name} • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight} • ${sourceVideo.duration.toFixed(2)}s`;
   setStatus("Video loaded. Base layer created.");
-  ensureLoop();
+  requestPreviewRefresh();
 
   let autoplayBlocked = false;
   try {
@@ -2014,6 +2000,7 @@ async function loadVideo(file) {
   }
 }
 
+// these transport helpers mirror the front-panel playback buttons.
 async function togglePlayback() {
   if (!sourceVideo.src) {
     setStatus("Upload a video first.");
@@ -2033,6 +2020,7 @@ async function togglePlayback() {
 
   sourceVideo.pause();
   stopReversePlayback();
+  requestPreviewRefresh();
   setStatus("Playback paused.");
 }
 
@@ -2044,6 +2032,7 @@ function stopPlayback() {
   sourceVideo.pause();
   stopReversePlayback();
   sourceVideo.currentTime = 0;
+  requestPreviewRefresh();
   setStatus("Playback stopped.");
 }
 
@@ -2057,6 +2046,7 @@ function startReversePlayback() {
   stopReversePlayback();
   reversePlaybackStamp = 0;
   setStatus("Reverse playback running.");
+  ensureLoop();
 
   const step = (timestamp) => {
     if (!sourceVideo.src) {
@@ -2084,9 +2074,11 @@ function resetVideoEffects() {
   stopReversePlayback();
   layerEditor.resetEffects();
   resetFrameAnalysisState();
+  requestPreviewRefresh();
   setStatus("Video effects reset.");
 }
 
+// this records the current composite loop from the preview canvas.
 async function exportLoop() {
   if (isRecording) {
     return;
@@ -2160,7 +2152,25 @@ async function exportLoop() {
   }, LOOP_DURATION * 1000);
 }
 
+// these media events keep the preview responsive without rerendering while idle.
+sourceVideo.addEventListener("play", () => {
+  ensureLoop();
+});
+
+sourceVideo.addEventListener("pause", () => {
+  requestPreviewRefresh();
+});
+
+sourceVideo.addEventListener("seeked", () => {
+  requestPreviewRefresh();
+});
+
+sourceVideo.addEventListener("loadeddata", () => {
+  requestPreviewRefresh();
+});
+
 uploadButton.addEventListener("click", () => {
+  fileInput.value = "";
   fileInput.click();
 });
 
@@ -2198,6 +2208,7 @@ exportButton.addEventListener("click", () => {
 splitButton.addEventListener("click", () => {
   splitScreenEnabled = !splitScreenEnabled;
   updateSplitButton();
+  requestPreviewRefresh();
 });
 
 qualitySelect?.addEventListener("change", () => {
@@ -2255,6 +2266,7 @@ addLayerButtons.forEach((button) => {
     };
     setOutput(outputMap[key], layer.params[key]);
     layerEditor.syncControlsFromSelection();
+    requestPreviewRefresh();
   });
 });
 
@@ -2272,6 +2284,7 @@ addLayerButtons.forEach((button) => {
   });
 });
 
+// this reuses the shared layer editor and volume helper for the crt page.
 layerEditor = createLayerEditor({
   dom: {
     layersList,
@@ -2298,6 +2311,7 @@ layerEditor = createLayerEditor({
   createLayerRuntime,
   getCanvasSize: () => ({ width: canvas.width || 1280, height: canvas.height || 720 }),
   hasSource: () => Boolean(sourceVideo.src),
+  requestRender: requestPreviewRefresh,
   setStatus,
   setOutput,
   markControlTouched,
