@@ -1491,184 +1491,828 @@
           width: 100%;
         }
       }
+
+      :root {
+        --desktop: #d7812f;
+        --desktop-grid: rgba(255, 255, 255, 0.07);
+        --window: #c0c0c0;
+        --window-soft: #d4d0c8;
+        --light: #ffffff;
+        --light-soft: #dfdfdf;
+        --shadow: #808080;
+        --shadow-deep: #404040;
+        --ink: #000000;
+        --ink-soft: #2f2f2f;
+        --title-start: #0a246a;
+        --title-end: #a6caf0;
+        --accent: #d85e10;
+        --accent-light: #f2a44b;
+        --player-bg: #000000;
+        --player-ink: #f4f4f4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body::before,
+      body::after {
+        display: none;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--ink);
+        font-family: "Tahoma", "MS Sans Serif", "Segoe UI", sans-serif;
+        font-size: 12px;
+        background: var(--desktop);
+      }
+
+      body {
+        position: relative;
+      }
+
+      body .site-home-logo {
+        display: none !important;
+      }
+
+      .page {
+        min-height: 100vh;
+        padding: 28px 18px;
+        background:
+          linear-gradient(var(--desktop-grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--desktop-grid) 1px, transparent 1px);
+        background-size: 4px 4px;
+      }
+
+      .shell {
+        max-width: 1540px;
+        margin: 0 auto;
+        background: var(--window);
+        border: 2px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        box-shadow:
+          inset 1px 1px 0 var(--light-soft),
+          inset -1px -1px 0 var(--shadow),
+          4px 4px 0 rgba(0, 0, 0, 0.25);
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 5px 6px;
+        background: linear-gradient(90deg, var(--title-start), var(--title-end));
+        color: #ffffff;
+      }
+
+      .titlebar-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .app-icon {
+        width: 18px;
+        height: 18px;
+        position: relative;
+        flex: 0 0 auto;
+        border: 1px solid #00143f;
+        background:
+          linear-gradient(90deg, #000000 0 48%, transparent 48%),
+          linear-gradient(180deg, #000000 0 48%, transparent 48%),
+          linear-gradient(135deg, #ffcb4f, #cc4f31);
+        box-shadow:
+          inset 1px 1px 0 rgba(255, 255, 255, 0.55),
+          inset -1px -1px 0 rgba(0, 0, 0, 0.35);
+      }
+
+      .titlebar h1 {
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+
+      .window-controls {
+        display: flex;
+        gap: 2px;
+        flex: 0 0 auto;
+      }
+
+      .menu-shell {
+        padding: 0 6px 6px;
+      }
+
+      .menu-bar,
+      .mode-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 5px;
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+      }
+
+      .mode-toolbar {
+        margin-top: 4px;
+        align-items: flex-start;
+      }
+
+      .menu-item,
+      .toolbar-label {
+        color: var(--ink);
+        white-space: nowrap;
+      }
+
+      .menu-item {
+        padding: 2px 8px;
+      }
+
+      .menu-item.is-active {
+        border: 1px solid;
+        border-color: var(--shadow) var(--light) var(--light) var(--shadow);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--shadow-deep), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .toolbar-label {
+        min-width: 64px;
+        padding: 3px 2px 0;
+        font-weight: 700;
+      }
+
+      .mode-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      button,
+      input,
+      output {
+        font: inherit;
+      }
+
+      .button,
+      .icon-button,
+      .window-button,
+      .mode-tab {
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window);
+        color: var(--ink);
+        border-radius: 0;
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
+      }
+
+      .button,
+      .icon-button,
+      .window-button,
+      .mode-tab {
+        cursor: pointer;
+      }
+
+      .button:active,
+      .icon-button:active,
+      .window-button:active,
+      .mode-tab:active {
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .button:focus-visible,
+      .icon-button:focus-visible,
+      .window-button:focus-visible,
+      .mode-tab:focus-visible,
+      input:focus-visible {
+        outline: 1px dotted var(--ink);
+        outline-offset: -4px;
+      }
+
+      .window-button {
+        width: 22px;
+        height: 20px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        line-height: 1;
+      }
+
+      .mode-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        padding: 4px 10px;
+        text-decoration: none;
+        font-size: 11px;
+        letter-spacing: 0.02em;
+      }
+
+      .mode-tab.active {
+        color: #ffffff;
+        background: var(--accent);
+        border-color: #ffe0c2 #5c2400 #5c2400 #ffe0c2;
+        box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.26), inset -1px -1px 0 rgba(0, 0, 0, 0.28);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 284px minmax(0, 1fr) 320px;
+        gap: 10px;
+        padding: 0 6px 8px;
+      }
+
+      .sidebar-panel,
+      .stage-panel,
+      .control-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .panel-group,
+      .player-window,
+      .copy-box,
+      .info-box {
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 6px;
+        background: var(--window-soft);
+        border-bottom: 1px solid var(--shadow);
+      }
+
+      .panel-head-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .panel-head span {
+        font-size: 11px;
+        color: var(--ink-soft);
+      }
+
+      .panel-body {
+        padding: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .player-window {
+        display: grid;
+        gap: 8px;
+        padding: 8px;
+      }
+
+      .player-viewport {
+        padding: 3px;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
+      }
+
+      #player-shell {
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        position: relative;
+        border: 1px solid #000000;
+        background: #000000;
+      }
+
+      #stage-canvas,
+      #source-video {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #000000;
+      }
+
+      #source-video,
+      #file-input {
+        display: none;
+      }
+
+      .transport-strip {
+        display: grid;
+        gap: 8px;
+        padding: 6px;
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+      }
+
+      .transport-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+
+      .transport-bank {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+
+      .transport-bank-secondary {
+        justify-content: flex-end;
+      }
+
+      .transport-readout {
+        min-width: 176px;
+        padding: 3px 7px;
+        display: grid;
+        justify-items: end;
+        gap: 2px;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .transport-readout-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        letter-spacing: 0.04em;
+      }
+
+      .transport-readout-value {
+        font-weight: 700;
+      }
+
+      .player-readout {
+        display: grid;
+        gap: 4px;
+        padding: 6px;
+        background: var(--player-bg);
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
+      }
+
+      .meta,
+      .status {
+        margin: 0;
+        color: var(--player-ink);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .status {
+        min-height: 1.4em;
+        color: #fff6b1;
+      }
+
+      .stage-copy {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .copy-box {
+        min-height: 84px;
+        padding: 8px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .copy-box strong {
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .copy-box span {
+        color: var(--ink-soft);
+        line-height: 1.45;
+      }
+
+      .info-box {
+        padding: 8px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .info-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 5px 6px;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: var(--window-soft);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .info-row span {
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .info-row strong {
+        font-size: 11px;
+        text-align: right;
+      }
+
+      .button-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .button {
+        min-height: 28px;
+        padding: 0 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .button--accent,
+      .button.primary,
+      .button.active {
+        color: #ffffff;
+        background: var(--accent);
+        border-color: #ffe0c2 #5c2400 #5c2400 #ffe0c2;
+        box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.26), inset -1px -1px 0 rgba(0, 0, 0, 0.28);
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.24);
+      }
+
+      #import-button,
+      #import-button.active {
+        background: linear-gradient(180deg, #2c6bed, #0a246a);
+        color: #ffffff;
+        border-color: #dfe9ff #00113a #00113a #dfe9ff;
+        box-shadow: inset 1px 1px 0 #8db2ff, inset -1px -1px 0 #00184f;
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+      }
+
+      #import-button:active,
+      #import-button.active {
+        border-color: #00113a #dfe9ff #dfe9ff #00113a;
+        box-shadow: inset 1px 1px 0 #00184f, inset -1px -1px 0 #8db2ff;
+      }
+
+      .button:disabled,
+      .window-button:disabled,
+      input:disabled {
+        color: var(--shadow);
+        cursor: not-allowed;
+      }
+
+      .slider-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .slider-row {
+        display: grid;
+        grid-template-columns: 90px minmax(0, 1fr) 46px;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .slider-row label {
+        color: var(--ink-soft);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .slider-row output {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        min-height: 22px;
+        padding: 0 4px;
+        background: var(--window);
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+        color: var(--ink);
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 20px;
+        margin: 0;
+        background: transparent;
+      }
+
+      input[type="range"]::-webkit-slider-runnable-track {
+        height: 4px;
+        background: #8c8c8c;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 12px;
+        height: 20px;
+        margin-top: -9px;
+        background: var(--accent-light);
+        border: 1px solid;
+        border-color: #ffe0c2 #5c2400 #5c2400 #ffe0c2;
+        box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(0, 0, 0, 0.25);
+      }
+
+      input[type="range"]::-moz-range-track {
+        height: 4px;
+        background: #8c8c8c;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 #000000, inset -1px -1px 0 var(--light-soft);
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 12px;
+        height: 20px;
+        background: var(--accent-light);
+        border: 1px solid;
+        border-color: #ffe0c2 #5c2400 #5c2400 #ffe0c2;
+        box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3), inset -1px -1px 0 rgba(0, 0, 0, 0.25);
+        border-radius: 0;
+      }
+
+      #log-output {
+        margin: 0;
+        min-height: 240px;
+        max-height: 460px;
+        overflow: auto;
+        padding: 8px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--ink);
+        background: #ffffff;
+        border: 1px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      @media (max-width: 1220px) {
+        .layout {
+          grid-template-columns: 260px minmax(0, 1fr);
+        }
+
+        .control-panel {
+          grid-column: 1 / -1;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .page {
+          padding: 14px 10px;
+        }
+
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .control-panel {
+          display: flex;
+        }
+
+        .stage-copy {
+          grid-template-columns: 1fr;
+        }
+
+        .transport-row {
+          align-items: stretch;
+        }
+
+        .transport-bank,
+        .transport-bank-secondary {
+          justify-content: flex-start;
+        }
+
+        .transport-readout {
+          width: 100%;
+          justify-items: start;
+        }
+
+        .slider-row {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
     <div class="page">
       <div class="shell">
-        <header class="masthead">
-          <div class="masthead-copy">
-            <p class="eyebrow">Data1 / WebCodecs Relay</p>
-            <h1>Data1 Console</h1>
-            <p class="lead">
-              The same data1 relay now runs inside a windows 98 style shell with orange title bars,
-              light grey controls, and a flat desktop treatment built around the original orange palette.
-            </p>
+        <header class="titlebar">
+          <div class="titlebar-main">
+            <div class="app-icon" aria-hidden="true"></div>
+            <h1>DATA1</h1>
           </div>
-          <div class="masthead-side">
-            <div class="readout-housing">
-              <div class="readout-disc">
-                <span>Timeline</span>
-                <strong id="timeline-label">Idle</strong>
-                <small>Live Transport</small>
-              </div>
-            </div>
-            <nav class="mode-tabs" aria-label="Modes"></nav>
+          <div class="window-controls" aria-hidden="true">
+            <button class="window-button" type="button" tabindex="-1">_</button>
+            <button class="window-button" type="button" tabindex="-1">□</button>
+            <button class="window-button" type="button" tabindex="-1">×</button>
           </div>
         </header>
 
-        <main class="console-grid">
-          <section class="stage">
-            <article class="bevel-card stage-card">
-              <div class="stage-accent stage-accent--top"></div>
-              <div class="stage-accent stage-accent--base"></div>
-              <div class="stage-head">
-                <div>
-                  <p class="module-kicker">Live Stage</p>
-                  <h2>Data1 Relay Deck</h2>
+        <div class="menu-shell">
+          <div class="menu-bar" aria-label="Application Menu">
+            <span class="menu-item is-active">File</span>
+          </div>
+
+          <div class="mode-toolbar">
+            <span class="toolbar-label">Programs</span>
+            <nav class="mode-tabs" aria-label="Modes"></nav>
+          </div>
+        </div>
+
+        <main class="layout">
+          <aside class="sidebar-panel">
+            <section class="panel-group">
+              <div class="panel-head">
+                <div class="panel-head-main">
+                  <h2>Input</h2>
                 </div>
-                <div class="status-chip" id="status-text">Use Camera or Upload Video to start.</div>
+                <span>Source Deck</span>
               </div>
+              <div class="panel-body">
+                <div class="button-grid">
+                  <button class="button button--accent" id="camera-button" type="button">Use Camera</button>
+                  <button class="button" id="import-button" type="button">Upload Video</button>
+                </div>
 
-              <div class="stage-rig">
-                <div class="stage-disc stage-disc--left"></div>
-                <div class="stage-disc stage-disc--right"></div>
-                <div class="stage-slot">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+                <div class="copy-box">
+                  <strong>Signal Source</strong>
+                  <span>Switch between webcam capture and uploaded footage while keeping the same live data1 relay path.</span>
                 </div>
-                <div class="stage-shell">
-                  <canvas id="stage-canvas" width="1280" height="720"></canvas>
-                  <video id="source-video" playsinline muted></video>
-                </div>
-                <div class="stage-rail"></div>
               </div>
+            </section>
 
-              <div class="stage-foot">
-                <div class="source-strip">
-                  <span class="source-strip__label">Source Signal</span>
-                  <span class="meta" id="source-meta">No source selected.</span>
+            <section class="panel-group">
+              <div class="panel-head">
+                <div class="panel-head-main">
+                  <h2>Signal Path</h2>
                 </div>
-
-                <div class="spec-grid">
-                  <div>
+                <span>Relay Info</span>
+              </div>
+              <div class="panel-body">
+                <div class="info-box">
+                  <div class="info-row">
                     <span>Codec</span>
                     <strong>VP8</strong>
                   </div>
-                  <div>
+                  <div class="info-row">
                     <span>Path</span>
-                    <strong>Encode -> Decode</strong>
+                    <strong>Encode -&gt; Decode</strong>
                   </div>
-                  <div>
+                  <div class="info-row">
                     <span>Input</span>
                     <strong>Camera / Video File</strong>
                   </div>
+                  <div class="info-row">
+                    <span>Timeline</span>
+                    <strong id="timeline-label">Idle</strong>
+                  </div>
                 </div>
 
-                <p class="note">
-                  Source frame -> encoder -> chunk -> decoder -> canvas output. This page keeps the
-                  simple data1 pipeline but recasts it as an orange windows 98 workstation.
-                </p>
-              </div>
-            </article>
-          </section>
-
-          <aside class="control-stack">
-            <section class="bevel-card module">
-              <div class="module-head">
-                <div>
-                  <p class="module-kicker">Input Bay</p>
-                  <h3>Source</h3>
+                <div class="copy-box">
+                  <strong>Live Relay</strong>
+                  <span>Watch the clean feed or turn mosh on and off in real time without reloading the source.</span>
                 </div>
-                <div class="module-led" aria-hidden="true"></div>
+              </div>
+            </section>
+          </aside>
+
+          <section class="stage-panel">
+            <div class="player-window">
+              <div class="player-viewport">
+                <div id="player-shell">
+                  <canvas id="stage-canvas" width="1280" height="720"></canvas>
+                  <video id="source-video" playsinline muted></video>
+                </div>
               </div>
 
-              <div class="button-row">
-                <button class="button button--large button--source" id="camera-button" type="button">
-                  <span class="button__eyebrow">Live Feed</span>
-                  <span class="button__label">Use Camera</span>
-                </button>
-                <button class="button button--large button--source" id="import-button" type="button">
-                  <span class="button__eyebrow">File Input</span>
-                  <span class="button__label">Upload Video</span>
-                </button>
+              <div class="transport-strip">
+                <div class="transport-row">
+                  <div class="transport-bank">
+                    <button class="button" id="play-button" type="button">Play</button>
+                    <button class="button" id="pause-button" type="button">Pause</button>
+                    <button class="button" id="stop-button" type="button">Stop</button>
+                    <button class="button" id="restart-button" type="button">Restart</button>
+                  </div>
+
+                  <div class="transport-readout">
+                    <span class="transport-readout-label">Display</span>
+                    <span class="transport-readout-value">Data1 Relay</span>
+                  </div>
+                </div>
+
+                <div class="transport-row">
+                  <div class="transport-bank transport-bank-secondary">
+                    <button class="button button--accent" id="start-mosh-button" type="button">Start Mosh</button>
+                    <button class="button" id="stop-mosh-button" type="button" disabled>Stop Mosh</button>
+                    <button class="button" id="record-button" type="button">Record</button>
+                    <button class="button button--accent" id="reset-button" type="button">Keyframe Reset</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="player-readout">
+                <div class="meta" id="source-meta">No source selected.</div>
+                <div class="meta">Frame repeat replays decoded chunks live while the source keeps running under the relay.</div>
+                <div class="status" id="status-text">Use Camera or Upload Video to start.</div>
               </div>
 
               <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" />
+            </div>
 
-              <div class="module-copy">
-                <p>
-                  Switch between webcam capture and uploaded media without changing the underlying
-                  WebCodecs relay.
-                </p>
+            <div class="stage-copy">
+              <div class="copy-box">
+                <strong>Playback Surface</strong>
+                <span>Classic monitor window with the data1 output centered and every transport control docked directly underneath.</span>
               </div>
-            </section>
+              <div class="copy-box">
+                <strong>Mosh Bus</strong>
+                <span>Set frame repeat in the right rack, toggle mosh when needed, and use keyframe reset to pull the relay back to a fresh frame.</span>
+              </div>
+            </div>
+          </section>
 
-            <section class="bevel-card module">
-              <div class="module-head">
-                <div>
-                  <p class="module-kicker">Transport</p>
-                  <h3>Playback</h3>
+          <aside class="control-panel">
+            <section class="panel-group">
+              <div class="panel-head">
+                <div class="panel-head-main">
+                  <h2>Mosh Controls</h2>
                 </div>
-                <div class="module-led" aria-hidden="true"></div>
+                <span>Relay Bus</span>
               </div>
-
-              <div class="transport-grid">
-                <button class="button" id="play-button" type="button">Play</button>
-                <button class="button" id="pause-button" type="button">Pause</button>
-                <button class="button" id="stop-button" type="button">Stop</button>
-                <button class="button" id="restart-button" type="button">Restart</button>
-              </div>
-            </section>
-
-            <section class="bevel-card module">
-              <div class="module-head">
-                <div>
-                  <p class="module-kicker">Tuning</p>
-                  <h3>Mosh Controls</h3>
-                </div>
-                <div class="module-led" aria-hidden="true"></div>
-              </div>
-
-              <div class="tuning-panel">
-                <div class="tuning-top">
-                  <div>
-                    <p class="module-kicker">Playback Stretch</p>
-                    <h4>Speed Control</h4>
-                  </div>
-                  <output class="output-pod" id="speed-output">2</output>
-                </div>
-
+              <div class="panel-body">
                 <div class="slider-grid">
                   <div class="slider-row">
                     <label for="speed-slider">Frame Repeat</label>
                     <input id="speed-slider" type="range" min="1" max="12" step="1" value="2" />
+                    <output id="speed-output">2</output>
                   </div>
                 </div>
 
-                <div class="tuning-actions">
-                  <button class="button button--accent" id="start-mosh-button" type="button">Start Mosh</button>
-                  <button class="button button--dark" id="stop-mosh-button" type="button" disabled>Stop Mosh</button>
-                </div>
-
-                <div class="tuning-actions">
-                  <button class="button button--dark" id="record-button" type="button">Record</button>
-                  <button class="button button--accent" id="reset-button" type="button">Keyframe Reset</button>
+                <div class="copy-box">
+                  <strong>Frame Stretch</strong>
+                  <span>Higher values replay more non key frames and push the live smear harder across camera or uploaded footage.</span>
                 </div>
               </div>
             </section>
 
-            <section class="bevel-card module log-panel">
-              <div class="module-head">
-                <div>
-                  <p class="module-kicker">Diagnostics</p>
-                  <h3>Runtime Log</h3>
+            <section class="panel-group">
+              <div class="panel-head">
+                <div class="panel-head-main">
+                  <h2>Runtime Log</h2>
                 </div>
-                <div class="module-led" aria-hidden="true"></div>
+                <span>Diagnostics</span>
               </div>
-
-              <pre id="log-output">Data1 idle.</pre>
+              <div class="panel-body">
+                <pre id="log-output">Data1 idle.</pre>
+              </div>
             </section>
           </aside>
         </main>
