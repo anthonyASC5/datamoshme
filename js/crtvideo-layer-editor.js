@@ -101,7 +101,6 @@ function defaultLayerParams(type) {
       highlights: 0,
       shadows: 0,
       sharpness: 0.35,
-      echoFrames: 0,
       edgeGlow: 0,
       crtGlow: 0,
     };
@@ -137,7 +136,7 @@ function layerLabelForType(type) {
       cluster: "Cluster Edge Tracker",
       clusterOnly: "Cluster Only",
       clusterTrack: "Full Cluster Track",
-      editor: "Video Editor",
+      editor: "Adjustments",
     }[type] || "Layer"
   );
 }
@@ -420,7 +419,7 @@ export function createLayerEditor({
     const isEffectLayer = Boolean(layer && layer.type !== "video" && layer.type !== "editor");
     dom.editorPanel.hidden = false;
     dom.layerSelectionLabel.textContent = isEffectLayer ? layer.name : "Effects";
-    dom.editorSelectionLabel.textContent = editorLayer ? editorLayer.name : "Video Editor";
+    dom.editorSelectionLabel.textContent = editorLayer ? editorLayer.name : "Adjustments";
     dom.editorControls.hidden = !editorLayer;
 
     if (editorLayer) {
@@ -429,7 +428,6 @@ export function createLayerEditor({
       dom.highlightsSlider.value = String(editorLayer.params.highlights);
       dom.shadowsSlider.value = String(editorLayer.params.shadows);
       dom.sharpnessSlider.value = String(editorLayer.params.sharpness);
-      dom.echoFramesSlider.value = String(editorLayer.params.echoFrames);
       dom.editorEdgeGlowSlider.value = String(editorLayer.params.edgeGlow);
       dom.crtGlowSlider.value = String(editorLayer.params.crtGlow);
       setOutput(dom.brightnessOutput, editorLayer.params.brightness);
@@ -437,7 +435,6 @@ export function createLayerEditor({
       setOutput(dom.highlightsOutput, editorLayer.params.highlights);
       setOutput(dom.shadowsOutput, editorLayer.params.shadows);
       setOutput(dom.sharpnessOutput, editorLayer.params.sharpness);
-      setOutput(dom.echoFramesOutput, editorLayer.params.echoFrames);
       setOutput(dom.editorEdgeGlowOutput, editorLayer.params.edgeGlow);
       setOutput(dom.crtGlowOutput, editorLayer.params.crtGlow);
     }
@@ -477,7 +474,7 @@ export function createLayerEditor({
     }
 
     const layer = createLayer("editor");
-    layer.name = "Video Editor";
+    layer.name = "Adjustments";
     layers.push(layer);
     return layer;
   }
@@ -600,7 +597,7 @@ export function createLayerEditor({
       editorLayer.visible = true;
       editorLayer.opacity = 1;
       editorLayer.blend = defaultBlendForType("editor");
-      editorLayer.name = "Video Editor";
+      editorLayer.name = "Adjustments";
     }
     layers = [baseLayer, editorLayer].filter(Boolean);
     selectedLayerId = baseLayer?.id ?? null;

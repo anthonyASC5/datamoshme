@@ -3,7 +3,25 @@ import { createVideoVolumeController } from "./video-volume.js";
 
 const LOOP_DURATION = 7;
 const MAX_EXPORT_WIDTH = 1280;
+const MIN_RENDER_WIDTH = 64;
+const MIN_RENDER_HEIGHT = 36;
 const QUALITY_PRESETS = {
+  micro: {
+    label: "Micro",
+    scale: 0.1,
+    clusterStepScale: 3.4,
+    clusterLimitScale: 0.18,
+    edgeBlockScale: 3.2,
+    detectBlock: 10,
+  },
+  low: {
+    label: "Low",
+    scale: 0.3,
+    clusterStepScale: 2.05,
+    clusterLimitScale: 0.34,
+    edgeBlockScale: 2.15,
+    detectBlock: 7,
+  },
   performance: {
     label: "Performance",
     scale: 0.55,
@@ -50,10 +68,8 @@ const FILTER_JS_SCRIPT_URLS = Object.freeze([
   "https://rawcdn.githack.com/foo123/FILTER.js/master/build/filter.min.js",
 ]);
 const EDITOR_EXTRA_EFFECT_CONFIG = Object.freeze([
-  { key: "halftone", label: "Halftone", min: 0, max: 1, step: 0.01, defaultValue: 0 },
   { key: "solarize", label: "Solarize", min: 0, max: 1, step: 0.01, defaultValue: 0 },
   { key: "redChannel", label: "Red Channel", min: 0, max: 1, step: 0.01, defaultValue: 0 },
-  { key: "cmyColorSpace", label: "CMY Space", min: 0, max: 1, step: 0.01, defaultValue: 0 },
   { key: "hueGreyscale", label: "Hue Gray", min: 0, max: 1, step: 0.01, defaultValue: 0 },
   { key: "hueConnectedComponents", label: "Hue CCA", min: 0, max: 1, step: 0.01, defaultValue: 0 },
   { key: "hueConnectedContours", label: "CCA Contours", min: 0, max: 1, step: 0.01, defaultValue: 0 },
@@ -62,10 +78,8 @@ const EDITOR_EXTRA_DEFAULTS = Object.freeze(
   Object.fromEntries(EDITOR_EXTRA_EFFECT_CONFIG.map((entry) => [entry.key, entry.defaultValue])),
 );
 const EDITOR_WEBGL_EFFECT_KEYS = new Set([
-  "halftone",
   "solarize",
   "redChannel",
-  "cmyColorSpace",
   "hueGreyscale",
 ]);
 const fileInput = document.getElementById("video-input");
@@ -98,7 +112,6 @@ const contrastSlider = document.getElementById("contrast-slider");
 const highlightsSlider = document.getElementById("highlights-slider");
 const shadowsSlider = document.getElementById("shadows-slider");
 const sharpnessSlider = document.getElementById("sharpness-slider");
-const echoFramesSlider = document.getElementById("echo-frames-slider");
 const editorEdgeGlowSlider = document.getElementById("editor-edge-glow-slider");
 const crtGlowSlider = document.getElementById("crt-glow-slider");
 
@@ -107,7 +120,6 @@ const contrastOutput = document.getElementById("contrast-output");
 const highlightsOutput = document.getElementById("highlights-output");
 const shadowsOutput = document.getElementById("shadows-output");
 const sharpnessOutput = document.getElementById("sharpness-output");
-const echoFramesOutput = document.getElementById("echo-frames-output");
 const editorEdgeGlowOutput = document.getElementById("editor-edge-glow-output");
 const crtGlowOutput = document.getElementById("crt-glow-output");
 
@@ -230,13 +242,10 @@ function editorPassIsNeutral(params) {
     Math.abs(params.highlights) < 0.001 &&
     Math.abs(params.shadows) < 0.001 &&
     Math.abs(params.sharpness) < 0.001 &&
-    Math.abs(params.echoFrames) < 0.001 &&
     Math.abs(params.edgeGlow) < 0.001 &&
     Math.abs(params.crtGlow) < 0.001 &&
-    Math.abs(params.halftone ?? EDITOR_EXTRA_DEFAULTS.halftone) < 0.001 &&
     Math.abs(params.solarize ?? EDITOR_EXTRA_DEFAULTS.solarize) < 0.001 &&
     Math.abs(params.redChannel ?? EDITOR_EXTRA_DEFAULTS.redChannel) < 0.001 &&
-    Math.abs(params.cmyColorSpace ?? EDITOR_EXTRA_DEFAULTS.cmyColorSpace) < 0.001 &&
     Math.abs(params.hueGreyscale ?? EDITOR_EXTRA_DEFAULTS.hueGreyscale) < 0.001 &&
     Math.abs(params.hueConnectedComponents ?? EDITOR_EXTRA_DEFAULTS.hueConnectedComponents) < 0.001 &&
     Math.abs(params.hueConnectedContours ?? EDITOR_EXTRA_DEFAULTS.hueConnectedContours) < 0.001
@@ -634,10 +643,8 @@ function createEditorProgram(gl, vertexSource, fragmentSource) {
 
 function editorWebGLEffectsActive(params) {
   return (
-    getEditorExtraValue(params, "halftone") > 0.001 ||
     getEditorExtraValue(params, "solarize") > 0.001 ||
     getEditorExtraValue(params, "redChannel") > 0.001 ||
-    getEditorExtraValue(params, "cmyColorSpace") > 0.001 ||
     getEditorExtraValue(params, "hueGreyscale") > 0.001
   );
 }
@@ -679,7 +686,6 @@ function ensureEditorWebGLState(runtime, width, height) {
 
     void main() {
       v_uv = (a_position + 1.0) * 0.5;
-      v_uv.y = 1.0 - v_uv.y;
       gl_Position = vec4(a_position, 0.0, 1.0);
     }
   `;
@@ -689,11 +695,8 @@ function ensureEditorWebGLState(runtime, width, height) {
 
     varying vec2 v_uv;
     uniform sampler2D u_texture;
-    uniform vec2 u_resolution;
-    uniform float u_halftone;
     uniform float u_solarize;
     uniform float u_redChannel;
-    uniform float u_cmy;
     uniform float u_hueGray;
 
     vec3 rgb2hsv(vec3 color) {
@@ -705,25 +708,11 @@ function ensureEditorWebGLState(runtime, width, height) {
       return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
     }
 
-    float rotatedPattern(vec2 pixel, float angle, float size) {
-      float s = sin(angle);
-      float c = cos(angle);
-      vec2 point = vec2(
-        c * pixel.x - s * pixel.y,
-        s * pixel.x + c * pixel.y
-      ) / size;
-      return sin(point.x) * sin(point.y);
-    }
-
     void main() {
       vec3 color = texture2D(u_texture, v_uv).rgb;
 
       if (u_redChannel > 0.001) {
         color = mix(color, vec3(color.r, 0.0, 0.0), u_redChannel);
-      }
-
-      if (u_cmy > 0.001) {
-        color = mix(color, vec3(1.0) - color, u_cmy);
       }
 
       if (u_hueGray > 0.001) {
@@ -735,17 +724,6 @@ function ensureEditorWebGLState(runtime, width, height) {
         float threshold = mix(0.84, 0.34, u_solarize);
         vec3 solarized = mix(color, 1.0 - color, step(vec3(threshold), color));
         color = mix(color, solarized, u_solarize);
-      }
-
-      if (u_halftone > 0.001) {
-        float size = mix(28.0, 4.5, clamp(u_halftone, 0.0, 1.0));
-        vec2 pixel = v_uv * u_resolution;
-        vec3 cmy = 1.0 - color;
-        float cyan = smoothstep(-1.0, 1.0, rotatedPattern(pixel, 0.261799, size) + cmy.r * 1.6 - 0.8);
-        float magenta = smoothstep(-1.0, 1.0, rotatedPattern(pixel, 1.308996, size) + cmy.g * 1.6 - 0.8);
-        float yellow = smoothstep(-1.0, 1.0, rotatedPattern(pixel, 0.0, size) + cmy.b * 1.6 - 0.8);
-        vec3 halftone = 1.0 - vec3(cyan, magenta, yellow);
-        color = mix(color, halftone, u_halftone);
       }
 
       gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
@@ -787,11 +765,8 @@ function ensureEditorWebGLState(runtime, width, height) {
     },
     uniforms: {
       texture: gl.getUniformLocation(program, "u_texture"),
-      resolution: gl.getUniformLocation(program, "u_resolution"),
-      halftone: gl.getUniformLocation(program, "u_halftone"),
       solarize: gl.getUniformLocation(program, "u_solarize"),
       redChannel: gl.getUniformLocation(program, "u_redChannel"),
-      cmy: gl.getUniformLocation(program, "u_cmy"),
       hueGray: gl.getUniformLocation(program, "u_hueGray"),
     },
   };
@@ -819,11 +794,8 @@ function applyEditorWebGLPass(targetCtx, params, runtime) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, targetCtx.canvas);
 
   gl.uniform1i(uniforms.texture, 0);
-  gl.uniform2f(uniforms.resolution, width, height);
-  gl.uniform1f(uniforms.halftone, clamp(getEditorExtraValue(params, "halftone"), 0, 1));
   gl.uniform1f(uniforms.solarize, clamp(getEditorExtraValue(params, "solarize"), 0, 1));
   gl.uniform1f(uniforms.redChannel, clamp(getEditorExtraValue(params, "redChannel"), 0, 1));
-  gl.uniform1f(uniforms.cmy, clamp(getEditorExtraValue(params, "cmyColorSpace"), 0, 1));
   gl.uniform1f(uniforms.hueGray, clamp(getEditorExtraValue(params, "hueGreyscale"), 0, 1));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -835,29 +807,16 @@ function applyEditorWebGLPass(targetCtx, params, runtime) {
 function applyEditorAdvancedCpuFallback(targetCtx, params) {
   const width = targetCtx.canvas.width;
   const height = targetCtx.canvas.height;
-  const halftone = clamp(getEditorExtraValue(params, "halftone"), 0, 1);
   const solarize = clamp(getEditorExtraValue(params, "solarize"), 0, 1);
   const redChannel = clamp(getEditorExtraValue(params, "redChannel"), 0, 1);
-  const cmy = clamp(getEditorExtraValue(params, "cmyColorSpace"), 0, 1);
   const hueGray = clamp(getEditorExtraValue(params, "hueGreyscale"), 0, 1);
 
-  if (halftone <= 0.001 && solarize <= 0.001 && redChannel <= 0.001 && cmy <= 0.001 && hueGray <= 0.001) {
+  if (solarize <= 0.001 && redChannel <= 0.001 && hueGray <= 0.001) {
     return;
   }
 
   const imageData = targetCtx.getImageData(0, 0, width, height);
   const data = imageData.data;
-  const size = mix(28, 4.5, halftone);
-  const cyanAngle = 0.261799;
-  const magentaAngle = 1.308996;
-
-  const patternAt = (x, y, angle) => {
-    const s = Math.sin(angle);
-    const c = Math.cos(angle);
-    const px = (c * x - s * y) / size;
-    const py = (s * x + c * y) / size;
-    return Math.sin(px) * Math.sin(py);
-  };
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -872,12 +831,6 @@ function applyEditorAdvancedCpuFallback(targetCtx, params) {
         blue = mix(blue, 0, redChannel);
       }
 
-      if (cmy > 0.001) {
-        red = mix(red, 1 - red, cmy);
-        green = mix(green, 1 - green, cmy);
-        blue = mix(blue, 1 - blue, cmy);
-      }
-
       if (hueGray > 0.001) {
         const hsv = rgbToHsvNormalized(red, green, blue);
         red = mix(red, hsv.h, hueGray);
@@ -890,18 +843,6 @@ function applyEditorAdvancedCpuFallback(targetCtx, params) {
         red = mix(red, red >= threshold ? 1 - red : red, solarize);
         green = mix(green, green >= threshold ? 1 - green : green, solarize);
         blue = mix(blue, blue >= threshold ? 1 - blue : blue, solarize);
-      }
-
-      if (halftone > 0.001) {
-        const cyan = 1 - red;
-        const magenta = 1 - green;
-        const yellow = 1 - blue;
-        const htRed = 1 - smoothstep(-1, 1, patternAt(x, y, cyanAngle) + cyan * 1.6 - 0.8);
-        const htGreen = 1 - smoothstep(-1, 1, patternAt(x, y, magentaAngle) + magenta * 1.6 - 0.8);
-        const htBlue = 1 - smoothstep(-1, 1, patternAt(x, y, 0) + yellow * 1.6 - 0.8);
-        red = mix(red, htRed, halftone);
-        green = mix(green, htGreen, halftone);
-        blue = mix(blue, htBlue, halftone);
       }
 
       data[index] = clamp(Math.round(red * 255), 0, 255);
@@ -1089,8 +1030,8 @@ function applyHueConnectedComponentsPass(targetCtx, params, runtime) {
 function resizeBuffers(videoWidth = 1280, videoHeight = 720) {
   const preset = getQualityPreset();
   const scale = Math.min(Math.min(MAX_EXPORT_WIDTH / videoWidth, 1) * preset.scale, 1);
-  const width = Math.max(320, Math.round(videoWidth * scale));
-  const height = Math.max(180, Math.round(videoHeight * scale));
+  const width = Math.max(MIN_RENDER_WIDTH, Math.round(videoWidth * scale));
+  const height = Math.max(MIN_RENDER_HEIGHT, Math.round(videoHeight * scale));
   [canvas, sourceCanvas, compositeCanvas, splitCanvas, scratchCanvas].forEach((node) => {
     node.width = width;
     node.height = height;
@@ -1759,15 +1700,6 @@ function applyEditorPass(targetCtx, params, runtime) {
 
   applyHueConnectedComponentsPass(targetCtx, params, runtime);
 
-  if (params.echoFrames > 0 && runtime?.ghostCanvas) {
-    targetCtx.save();
-    targetCtx.globalCompositeOperation = "screen";
-    targetCtx.globalAlpha = clamp(params.echoFrames * 0.55, 0, 0.7);
-    targetCtx.filter = `blur(${Math.max(0.1, params.echoFrames * 3.2)}px)`;
-    targetCtx.drawImage(runtime.ghostCanvas, 0, 0);
-    targetCtx.restore();
-  }
-
   if (params.edgeGlow > 0 && runtime?.auxCtx) {
     const preset = getQualityPreset();
     const passImage = targetCtx.getImageData(0, 0, width, height);
@@ -1844,7 +1776,6 @@ function applyEditorPass(targetCtx, params, runtime) {
 
   if (runtime?.ghostCtx) {
     runtime.ghostCtx.clearRect(0, 0, width, height);
-    runtime.ghostCtx.globalAlpha = 1 - clamp(params.echoFrames * 0.25, 0, 0.25);
     runtime.ghostCtx.drawImage(targetCtx.canvas, 0, 0);
     runtime.ghostCtx.globalAlpha = 1;
   }
@@ -2303,7 +2234,6 @@ addLayerButtons.forEach((button) => {
   [highlightsSlider, "highlights"],
   [shadowsSlider, "shadows"],
   [sharpnessSlider, "sharpness"],
-  [echoFramesSlider, "echoFrames"],
   [editorEdgeGlowSlider, "edgeGlow"],
   [crtGlowSlider, "crtGlow"],
 ].forEach(([slider, key]) => {
@@ -2320,7 +2250,6 @@ addLayerButtons.forEach((button) => {
       highlights: highlightsOutput,
       shadows: shadowsOutput,
       sharpness: sharpnessOutput,
-      echoFrames: echoFramesOutput,
       edgeGlow: editorEdgeGlowOutput,
       crtGlow: crtGlowOutput,
     };
@@ -2335,7 +2264,6 @@ addLayerButtons.forEach((button) => {
   highlightsSlider,
   shadowsSlider,
   sharpnessSlider,
-  echoFramesSlider,
   editorEdgeGlowSlider,
   crtGlowSlider,
 ].forEach((slider) => {
@@ -2357,7 +2285,6 @@ layerEditor = createLayerEditor({
     highlightsSlider,
     shadowsSlider,
     sharpnessSlider,
-    echoFramesSlider,
     editorEdgeGlowSlider,
     crtGlowSlider,
     brightnessOutput,
@@ -2365,7 +2292,6 @@ layerEditor = createLayerEditor({
     highlightsOutput,
     shadowsOutput,
     sharpnessOutput,
-    echoFramesOutput,
     editorEdgeGlowOutput,
     crtGlowOutput,
   },

@@ -1,13 +1,11 @@
 (function () {
   const TAB_CONFIG = [
-    { href: "./datamosh.html", label: "Datamosh", pixel: true, aliases: ["./index.html", "./"] },
-    { href: "./data1.html", label: "Data1", pixel: true },
+    { href: "./datamosh.html", label: "Data Mosh", pixel: true, aliases: ["./index.html", "./"] },
     { href: "./crtvideo.html", label: "CRT Video", pixel: false },
+    { href: "./data1.html", label: "Data1", pixel: true },
     { href: "./datamosh-v1.html", label: "V1", pixel: true },
     { href: "./datamosh-v2.html", label: "V2", pixel: true },
     { href: "./datamosh-v3.html", label: "V3", pixel: true },
-    { href: "./blob-transition.html", label: "Blob Transition", pixel: true },
-    { href: "./crtimage.html", label: "CRT Image", pixel: false },
   ];
 
   function ensurePixelFont() {
