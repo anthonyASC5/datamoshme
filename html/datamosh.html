@@ -14,15 +14,15 @@
     <style>
       :root {
         --bg: #ff8a1e;
-        --surface: #111111;
-        --surface-strong: #161616;
-        --surface-muted: #0d0d0d;
+        --surface: #ffffff;
+        --surface-strong: #fff5eb;
+        --surface-muted: #f6ece2;
         --line: rgba(255, 138, 30, 0.4);
         --line-soft: rgba(255, 138, 30, 0.14);
-        --text: #f3eee8;
-        --muted: #a89d90;
+        --text: #121212;
+        --muted: #64584c;
         --accent: #ff8a1e;
-        --accent-text: #0d0d0d;
+        --accent-text: #ffffff;
       }
 
       * {
@@ -75,6 +75,7 @@
 
       .mode-tabs {
         display: flex;
+        align-items: center;
         gap: 8px;
         flex-wrap: wrap;
       }
@@ -91,16 +92,33 @@
         font-size: 0.66rem;
         letter-spacing: 0.12em;
         background: transparent;
+        transition: transform 140ms ease;
       }
 
       body .mode-tab.pixel {
         font-family: inherit;
       }
 
+      .mode-tab-logo {
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }
+
+      .mode-tab-logo img {
+        display: block;
+        width: auto;
+        height: 104px;
+      }
+
       .mode-tab.active {
         background: var(--accent);
         border-color: var(--accent);
         color: var(--accent-text);
+      }
+
+      .mode-tab:hover {
+        transform: scale(1.06);
       }
 
       .layout {
@@ -189,7 +207,8 @@
       .pill {
         padding: 8px 12px;
         border: 1px solid var(--line);
-        background: rgba(0, 0, 0, 0.82);
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--text);
         font-size: 0.68rem;
         letter-spacing: 0.12em;
       }
@@ -221,13 +240,14 @@
         background: transparent;
         color: var(--text);
         font: inherit;
-        font-size: 0.74rem;
+        font-size: 0.86rem;
+        font-weight: 600;
         letter-spacing: 0.12em;
         cursor: pointer;
       }
 
       .button:hover {
-        background: var(--surface-strong);
+        background: var(--surface-muted);
       }
 
       .button:disabled {
@@ -316,24 +336,6 @@
         background: var(--surface-muted);
       }
 
-      body .site-home-logo {
-        border: 1px solid var(--line);
-        background: var(--surface-strong);
-        color: var(--text);
-        box-shadow: none;
-      }
-
-      body .site-home-logo.is-home {
-        border-color: var(--accent);
-        box-shadow: none;
-      }
-
-      body .site-home-logo span {
-        font-family: "IBM Plex Mono", monospace !important;
-        font-size: 0.72rem;
-        letter-spacing: 0.12em;
-      }
-
       @media (max-width: 1080px) {
         .layout {
           grid-template-columns: 1fr;
@@ -362,7 +364,12 @@
       <div class="shell">
         <header class="titlebar">
           <h1>DATAMOSH</h1>
-          <nav class="mode-tabs" aria-label="Modes"></nav>
+          <nav class="mode-tabs" aria-label="Modes">
+            <a class="mode-tab active" href="https://anthonyasc5.github.io/datamoshme/" aria-current="page">DATAMOSH</a>
+            <a class="mode-tab mode-tab-logo" href="./crtvideo.html" aria-label="Open CRT WRLD VIDEO">
+              <img src="../images/lallogo.png" alt="Pixel Earth Arcade" />
+            </a>
+          </nav>
         </header>
         <main class="layout">
           <section class="stage">
@@ -447,7 +454,6 @@
         </main>
       </div>
     </div>
-    <script src="../js/mode-nav.js"></script>
     <script type="module" src="../js/datamosh.js"></script>
   </body>
 </html>

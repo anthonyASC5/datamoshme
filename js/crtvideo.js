@@ -1,11 +1,16 @@
 import { createLayerEditor } from "./crtvideo-layer-editor.js";
 import { createVideoVolumeController } from "./video-volume.js";
+import { layerNeedsSourceImageData, renderEffectLayer } from "./effects.js";
 
 // these presets scale the working buffers before effects are composited.
-const LOOP_DURATION = 7;
 const MAX_EXPORT_WIDTH = 1280;
 const MIN_RENDER_WIDTH = 64;
 const MIN_RENDER_HEIGHT = 36;
+const SPLIT_SCREEN_MODES = Object.freeze({
+  off: "off",
+  side: "side",
+  stack: "stack",
+});
 const QUALITY_PRESETS = {
   micro: {
     label: "Micro",
@@ -63,6 +68,19 @@ const BLEND_MODE_MAP = {
   exclusion: "exclusion",
   subtract: "subtract",
 };
+const EDITOR_BASE_PARAM_DEFAULTS = Object.freeze({
+  brightness: 0,
+  contrast: 1,
+  highlights: 0,
+  shadows: 0,
+  sharpness: 0,
+  flicker: 0,
+  glow: 0,
+  blur: 0,
+  slowShutter: 0,
+  edgeGlow: 0,
+  crtGlow: 0,
+});
 // these extra controls feed the editor pass and small webgl shader.
 const EDITOR_EXTRA_EFFECT_CONFIG = Object.freeze([
   { key: "solarize", label: "Solarize", min: 0, max: 1, step: 0.01, defaultValue: 0 },
@@ -81,6 +99,7 @@ const ctx = canvas.getContext("2d", { alpha: false });
 const uploadButton = document.getElementById("upload-button");
 const playButton = document.getElementById("play-button");
 const splitButton = document.getElementById("split-button");
+const splitStackButton = document.getElementById("split-stack-button");
 const exportButton = document.getElementById("export-button");
 const headerPlayButton = document.getElementById("header-play-button");
 const headerStopButton = document.getElementById("header-stop-button");
@@ -94,6 +113,7 @@ const volumeSlider = document.getElementById("volume-slider");
 const volumeOutput = document.getElementById("volume-output");
 const volumeButton = document.getElementById("volume-button");
 const qualityMeta = document.getElementById("quality-meta");
+const displayModeValue = document.getElementById("display-mode-value");
 const layersList = document.getElementById("layers-list");
 const layersEmpty = document.getElementById("layers-empty");
 const layerSelectionLabel = document.getElementById("layer-selection-label");
@@ -104,6 +124,10 @@ const contrastSlider = document.getElementById("contrast-slider");
 const highlightsSlider = document.getElementById("highlights-slider");
 const shadowsSlider = document.getElementById("shadows-slider");
 const sharpnessSlider = document.getElementById("sharpness-slider");
+const flickerSlider = document.getElementById("flicker-slider");
+const glowSlider = document.getElementById("glow-slider");
+const blurSlider = document.getElementById("blur-slider");
+const slowShutterSlider = document.getElementById("slow-shutter-slider");
 const editorEdgeGlowSlider = document.getElementById("editor-edge-glow-slider");
 const crtGlowSlider = document.getElementById("crt-glow-slider");
 
@@ -112,8 +136,25 @@ const contrastOutput = document.getElementById("contrast-output");
 const highlightsOutput = document.getElementById("highlights-output");
 const shadowsOutput = document.getElementById("shadows-output");
 const sharpnessOutput = document.getElementById("sharpness-output");
+const flickerOutput = document.getElementById("flicker-output");
+const glowOutput = document.getElementById("glow-output");
+const blurOutput = document.getElementById("blur-output");
+const slowShutterOutput = document.getElementById("slow-shutter-output");
 const editorEdgeGlowOutput = document.getElementById("editor-edge-glow-output");
 const crtGlowOutput = document.getElementById("crt-glow-output");
+const EDITOR_CONTROL_BINDINGS = [
+  { slider: brightnessSlider, key: "brightness", output: brightnessOutput },
+  { slider: contrastSlider, key: "contrast", output: contrastOutput },
+  { slider: highlightsSlider, key: "highlights", output: highlightsOutput },
+  { slider: shadowsSlider, key: "shadows", output: shadowsOutput },
+  { slider: sharpnessSlider, key: "sharpness", output: sharpnessOutput },
+  { slider: flickerSlider, key: "flicker", output: flickerOutput },
+  { slider: glowSlider, key: "glow", output: glowOutput },
+  { slider: blurSlider, key: "blur", output: blurOutput },
+  { slider: slowShutterSlider, key: "slowShutter", output: slowShutterOutput },
+  { slider: editorEdgeGlowSlider, key: "edgeGlow", output: editorEdgeGlowOutput },
+  { slider: crtGlowSlider, key: "crtGlow", output: crtGlowOutput },
+];
 
 const editorPanel = document.getElementById("editor-panel");
 const editorControls = document.getElementById("editor-controls");
@@ -135,7 +176,7 @@ const scratchCtx = scratchCanvas.getContext("2d", { alpha: false, willReadFreque
 let activeObjectUrl = null;
 let isRecording = false;
 let renderHandle = 0;
-let splitScreenEnabled = false;
+let splitScreenMode = SPLIT_SCREEN_MODES.off;
 let previousSourceImageData = null;
 let layerEditor = null;
 let reversePlaybackHandle = 0;
@@ -143,6 +184,8 @@ let reversePlaybackStamp = 0;
 let currentQuality = qualitySelect?.value || "balanced";
 let targetFps = Number(fpsSelect?.value || 30);
 let lastRenderAt = 0;
+let activeRecorder = null;
+let activeRecordStream = null;
 const extraEditorControls = new Map();
 const volumeController = createVideoVolumeController({
   media: sourceVideo,
@@ -215,6 +258,18 @@ function resetFrameAnalysisState() {
       detectState.history.length = 0;
       detectState.activeAverage = 0;
     }
+    if (layer.runtime?.ghostCtx) {
+      layer.runtime.ghostCtx.clearRect(0, 0, layer.runtime.ghostCanvas.width, layer.runtime.ghostCanvas.height);
+    }
+    if (layer.runtime?.auxCtx) {
+      layer.runtime.auxCtx.clearRect(0, 0, layer.runtime.auxCanvas.width, layer.runtime.auxCanvas.height);
+    }
+    if (layer.runtime?.bufferCtx) {
+      layer.runtime.bufferCtx.clearRect(0, 0, layer.runtime.bufferCanvas.width, layer.runtime.bufferCanvas.height);
+    }
+    if (layer.runtime) {
+      layer.runtime.presetGhostData = null;
+    }
   });
   previousSourceImageData = null;
 }
@@ -224,29 +279,23 @@ function editorPassIsNeutral(params) {
     return true;
   }
   return (
-    Math.abs(params.brightness) < 0.001 &&
-    Math.abs(params.contrast - 1) < 0.001 &&
-    Math.abs(params.highlights) < 0.001 &&
-    Math.abs(params.shadows) < 0.001 &&
-    Math.abs(params.sharpness) < 0.001 &&
-    Math.abs(params.edgeGlow) < 0.001 &&
-    Math.abs(params.crtGlow) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "brightness")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "contrast") - 1) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "highlights")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "shadows")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "sharpness")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "flicker")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "glow")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "blur")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "slowShutter")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "edgeGlow")) < 0.001 &&
+    Math.abs(getEditorBaseValue(params, "crtGlow")) < 0.001 &&
     Math.abs(params.solarize ?? EDITOR_EXTRA_DEFAULTS.solarize) < 0.001 &&
     Math.abs(params.redChannel ?? EDITOR_EXTRA_DEFAULTS.redChannel) < 0.001 &&
     Math.abs(params.hueGreyscale ?? EDITOR_EXTRA_DEFAULTS.hueGreyscale) < 0.001 &&
     Math.abs(params.hueConnectedComponents ?? EDITOR_EXTRA_DEFAULTS.hueConnectedComponents) < 0.001 &&
     Math.abs(params.hueConnectedContours ?? EDITOR_EXTRA_DEFAULTS.hueConnectedContours) < 0.001
   );
-}
-
-function layerNeedsSourceImageData(layer) {
-  if (!layer?.visible || layer.opacity <= 0) {
-    return false;
-  }
-  if (layer.type === "crt") {
-    return (layer.params.edgeGlow || 0) > 0;
-  }
-  return ["cluster", "clusterOnly", "clusterTrack", "monitor", "black", "blu", "infrared", "detect"].includes(layer.type);
 }
 
 function markControlTouched(control, active = true) {
@@ -282,9 +331,11 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
   const ghostCtx = ghostCanvas.getContext("2d", { alpha: true });
   const auxCanvas = document.createElement("canvas");
   const auxCtx = auxCanvas.getContext("2d", { alpha: true });
-  [layerCtx, ghostCtx, auxCtx].forEach(setContextSampling);
-  layerCanvas.width = ghostCanvas.width = auxCanvas.width = width;
-  layerCanvas.height = ghostCanvas.height = auxCanvas.height = height;
+  const bufferCanvas = document.createElement("canvas");
+  const bufferCtx = bufferCanvas.getContext("2d", { alpha: true });
+  [layerCtx, ghostCtx, auxCtx, bufferCtx].forEach(setContextSampling);
+  layerCanvas.width = ghostCanvas.width = auxCanvas.width = bufferCanvas.width = width;
+  layerCanvas.height = ghostCanvas.height = auxCanvas.height = bufferCanvas.height = height;
   return {
     canvas: layerCanvas,
     ctx: layerCtx,
@@ -292,6 +343,8 @@ function createLayerRuntime(width = canvas.width || 1280, height = canvas.height
     ghostCtx,
     auxCanvas,
     auxCtx,
+    bufferCanvas,
+    bufferCtx,
     presetGhostData: null,
     detectState: {
       history: [],
@@ -427,7 +480,7 @@ function rgbToHsvNormalized(red, green, blue) {
 }
 
 // these helpers keep saved editor params compatible with the current control set.
-function ensureEditorExtraParams(layer) {
+function ensureEditorParams(layer) {
   if (!layer || layer.type !== "editor") {
     return layer;
   }
@@ -436,6 +489,12 @@ function ensureEditorExtraParams(layer) {
     layer.params = {};
   }
 
+  Object.entries(EDITOR_BASE_PARAM_DEFAULTS).forEach(([key, defaultValue]) => {
+    if (typeof layer.params[key] !== "number" || Number.isNaN(layer.params[key])) {
+      layer.params[key] = defaultValue;
+    }
+  });
+
   EDITOR_EXTRA_EFFECT_CONFIG.forEach(({ key, defaultValue }) => {
     if (typeof layer.params[key] !== "number" || Number.isNaN(layer.params[key])) {
       layer.params[key] = defaultValue;
@@ -443,6 +502,10 @@ function ensureEditorExtraParams(layer) {
   });
 
   return layer;
+}
+
+function getEditorBaseValue(params, key) {
+  return typeof params?.[key] === "number" && !Number.isNaN(params[key]) ? params[key] : EDITOR_BASE_PARAM_DEFAULTS[key];
 }
 
 function getEditorExtraValue(params, key) {
@@ -481,13 +544,8 @@ function injectEditorExtraControls() {
   }
 
   const divider = document.createElement("div");
+  divider.className = "slider-divider";
   divider.textContent = "WebGL / Filter FX";
-  divider.style.marginTop = "4px";
-  divider.style.paddingTop = "6px";
-  divider.style.borderTop = "1px solid rgba(0,0,0,0.28)";
-  divider.style.fontWeight = "700";
-  divider.style.color = "var(--ink-soft, #2f2f2f)";
-  divider.style.letterSpacing = "0.02em";
   editorControls.append(divider);
 
   EDITOR_EXTRA_EFFECT_CONFIG.forEach((config) => {
@@ -496,7 +554,7 @@ function injectEditorExtraControls() {
 }
 
 function syncEditorExtraControls() {
-  const editorLayer = ensureEditorExtraParams(layerEditor?.getEditorLayer?.());
+  const editorLayer = ensureEditorParams(layerEditor?.getEditorLayer?.());
   EDITOR_EXTRA_EFFECT_CONFIG.forEach((config) => {
     const control = extraEditorControls.get(config.key);
     if (!control) {
@@ -512,7 +570,7 @@ function bindEditorExtraControls() {
   extraEditorControls.forEach((control, key) => {
     control.input.addEventListener("input", () => {
       markControlTouched(control.input);
-      const editorLayer = ensureEditorExtraParams(layerEditor?.getEditorLayer?.());
+      const editorLayer = ensureEditorParams(layerEditor?.getEditorLayer?.());
       if (!editorLayer) {
         return;
       }
@@ -540,8 +598,8 @@ function extendLayerEditorForExtraEffects(editor) {
   const originalSyncControlsFromSelection = editor.syncControlsFromSelection.bind(editor);
   const originalResetEffects = editor.resetEffects.bind(editor);
 
-  editor.ensureEditorLayer = () => ensureEditorExtraParams(originalEnsureEditorLayer());
-  editor.getEditorLayer = () => ensureEditorExtraParams(originalGetEditorLayer());
+  editor.ensureEditorLayer = () => ensureEditorParams(originalEnsureEditorLayer());
+  editor.getEditorLayer = () => ensureEditorParams(originalGetEditorLayer());
   editor.syncControlsFromSelection = () => {
     const result = originalSyncControlsFromSelection();
     syncEditorExtraControls();
@@ -549,7 +607,7 @@ function extendLayerEditorForExtraEffects(editor) {
   };
   editor.resetEffects = () => {
     const result = originalResetEffects();
-    ensureEditorExtraParams(originalGetEditorLayer());
+    ensureEditorParams(originalGetEditorLayer());
     syncEditorExtraControls();
     return result;
   };
@@ -1011,619 +1069,39 @@ function togglePanel(head) {
   }
 }
 
-// this preset builder handles the black data and blu stylized layers.
-function buildPresetImage(imageData, elapsed, layer) {
-  const { width, height, data } = imageData;
-  const out = new Uint8ClampedArray(data.length);
-  const ghost = layer.runtime.presetGhostData || new Uint8ClampedArray(data.length);
-  const params = layer.params;
-  const grainCell = 1 + Math.floor(((Math.sin(elapsed * 7) + 1) * 0.5) * (2 + params.grit * 3));
-  const textureCell = Math.max(1, Math.round(1 + params.grit * 1.5));
-  const bluTint = hueToRgb(params.hue);
-
-  const lumaAt = (x, y) => {
-    const px = clamp(x, 0, width - 1);
-    const py = clamp(y, 0, height - 1);
-    const index = (py * width + px) * 4;
-    return data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
-  };
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4;
-      const srcR = data[index];
-      const srcG = data[index + 1];
-      const srcB = data[index + 2];
-      const luminance = lumaAt(x, y);
-      const inverted = 255 - luminance;
-      const edge = Math.abs(lumaAt(x + 1, y) - lumaAt(x - 1, y)) + Math.abs(lumaAt(x, y + 1) - lumaAt(x, y - 1));
-      const ghostGlow = ghost[index] * (layer.type === "blu" ? 0.22 : 0.28);
-      const textureSeed = (((Math.floor(x / textureCell) + 1) * 83492791) ^ ((Math.floor(y / textureCell) + 1) * 2971215073) ^ Math.floor(elapsed * 48)) >>> 0;
-      const sharpTexture = textureSeed % 100 < 50 ? 14 + params.grit * 20 : -(10 + params.grit * 12);
-
-      if (layer.type === "black") {
-        const sharpened = clamp((inverted * (1.15 + params.invertBlack * 1.05) + edge * 2.1) - params.reduceBlack * 124, 0, 255);
-        const threshold = 138 - params.reduceWhite * 74;
-        const halftone = ((x * 13 + y * 7 + Math.floor(elapsed * 20)) & 7) / 7;
-        const blackValue = sharpened + halftone * (18 + params.grit * 18) > threshold ? 255 : 0;
-        const crisp = clamp(blackValue + (ghostGlow > 64 ? 32 : 0), 0, 255);
-        out[index] = crisp;
-        out[index + 1] = crisp;
-        out[index + 2] = crisp;
-        out[index + 3] = 255;
-        continue;
-      }
-
-      let base = clamp((inverted * (0.7 + params.invertBlack * 0.9) - 96 * params.reduceBlack) * (2.2 + (1 - params.reduceWhite) * 0.9) + edge * 1.35, 0, 255);
-      base = clamp(base - params.reduceWhite * 88 + ghostGlow, 0, 255);
-
-      const grainSeed = (((Math.floor(x / grainCell) + 1) * 73856093) ^ ((Math.floor(y / grainCell) + 1) * 19349663) ^ Math.floor(elapsed * 60)) >>> 0;
-      const grain = grainSeed % 100 < 54 ? 18 + params.grit * 46 : -(10 + params.grit * 18);
-      base = clamp(base + grain + sharpTexture, 0, 255);
-
-      if (layer.type === "blu") {
-        const scanMask = y % 3 === 0 ? 0.82 : 1.0;
-        const interference = Math.sin((y + elapsed * 120) * 0.06) * 10 * params.grit;
-        const blueLevel = clamp(base * 0.2 + 38 + interference, 0, 255);
-        const whiteLevel = clamp(base * 0.92, 0, 255);
-        const tintStrength = 0.58 + params.color * 0.42;
-        let r = clamp(whiteLevel * params.color * 0.08 + blueLevel * bluTint.r * 0.22, 0, 255);
-        let g = clamp(blueLevel * bluTint.g * tintStrength + whiteLevel * params.color * 0.22, 0, 255);
-        let b = clamp(blueLevel * (0.74 + bluTint.b * 0.42) + whiteLevel * (0.2 + params.color * 0.48), 0, 255);
-        r *= scanMask;
-        g *= scanMask;
-        b *= scanMask;
-        out[index] = r;
-        out[index + 1] = g;
-        out[index + 2] = b;
-        out[index + 3] = 255;
-      } else {
-        out[index] = clamp(base * (1 - params.color) + srcR * params.color, 0, 255);
-        out[index + 1] = clamp(base * (1 - params.color) + srcG * params.color, 0, 255);
-        out[index + 2] = clamp(base * (1 - params.color) + srcB * params.color, 0, 255);
-        out[index + 3] = 255;
-      }
-    }
+function getEditorFlickerGain(elapsed, amount) {
+  if (amount <= 0.001) {
+    return 1;
   }
-
-  layer.runtime.presetGhostData = out.slice();
-  return new ImageData(out, width, height);
-}
-
-// this infrared pass remaps luma into a false-color thermal look.
-function buildInfraredImage(imageData, elapsed, layer) {
-  const { width, height, data } = imageData;
-  const out = new Uint8ClampedArray(data.length);
-  const colorOffset = wrapUnit(layer.params.colorOffset || 0);
-  const sweep = elapsed * 0.8;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4;
-      const red = data[index] / 255;
-      const green = data[index + 1] / 255;
-      const blue = data[index + 2] / 255;
-      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
-      const hue = wrapUnit(red + colorOffset + Math.sin(y * 0.03 + sweep) * 0.012);
-      const lightness = clamp(0.1 + luminance * 0.44 + red * 0.24, 0.08, 0.78);
-      const saturation = clamp(0.82 + red * 0.18, 0, 1);
-      const mapped = hslToRgb(hue, saturation, lightness);
-      const glowBoost = 1 + red * 0.18 + Math.sin((x + y) * 0.015 + sweep * 4) * 0.04;
-
-      out[index] = clamp(Math.round(mapped.r * glowBoost), 0, 255);
-      out[index + 1] = clamp(Math.round(mapped.g * glowBoost), 0, 255);
-      out[index + 2] = clamp(Math.round(mapped.b * glowBoost), 0, 255);
-      out[index + 3] = 255;
-    }
-  }
-
-  return new ImageData(out, width, height);
-}
-
-// this layer tracks bright moving edges and turns them into boxes and trails.
-function renderClusterLayer(layer, sourceImageData, elapsed) {
-  const { width, height, data } = sourceImageData;
-  const previousData = previousSourceImageData ? previousSourceImageData.data : null;
-  const params = layer.params;
-  const targetCtx = layer.runtime.ctx;
-  const ghostCtx = layer.runtime.ghostCtx;
-  const intenseTrack = layer.type === "clusterTrack";
-  const clusterOnly = layer.type === "clusterOnly" || intenseTrack;
-  const preset = getQualityPreset();
-  const step = Math.max(2, Math.round((5 - Math.min(params.grit, 1.35) * 0.75 - params.clusterQuantity * 1.6) * preset.clusterStepScale));
-  const clusterSpan = Math.max(8, Math.round(10 + params.clusterSize * 24 + (1 - params.clusterQuantity) * 14));
-  const clusters = new Map();
-
-  targetCtx.clearRect(0, 0, width, height);
-  targetCtx.lineCap = "round";
-  targetCtx.lineJoin = "round";
-
-  const lumaAt = (buffer, x, y) => {
-    const px = clamp(x, 0, width - 1);
-    const py = clamp(y, 0, height - 1);
-    const index = (py * width + px) * 4;
-    return buffer[index] * 0.299 + buffer[index + 1] * 0.587 + buffer[index + 2] * 0.114;
-  };
-
-  for (let y = 1; y < height - 1; y += step) {
-    for (let x = 1; x < width - 1; x += step) {
-      const edgeX = lumaAt(data, x + 1, y) - lumaAt(data, x - 1, y);
-      const edgeY = lumaAt(data, x, y + 1) - lumaAt(data, x, y - 1);
-      const luma = lumaAt(data, x, y);
-      const edge = Math.abs(edgeX) + Math.abs(edgeY);
-      const motion = previousData ? Math.abs(lumaAt(data, x, y) - lumaAt(previousData, x, y)) : 0;
-      const lightMask = clamp((luma - 150) / 105, 0, 1);
-      const density = edge * (0.58 + lightMask * 1.15) + motion * (clusterOnly ? 1.6 : 1.05) + lightMask * 84 - params.reduceBlack * 18;
-      if (density < (clusterOnly ? 20 : 30) || lightMask < (clusterOnly ? 0.02 : 0.08)) {
-        continue;
-      }
-
-      const normalized = clamp((density - (clusterOnly ? 20 : 30)) / (clusterOnly ? 120 : 104), 0, 1);
-      const key = `${Math.floor(x / clusterSpan)}:${Math.floor(y / clusterSpan)}`;
-      const cluster = clusters.get(key) || {
-        sumX: 0,
-        sumY: 0,
-        weightSum: 0,
-        edgeSum: 0,
-        motionSum: 0,
-        count: 0,
-        minX: x,
-        minY: y,
-        maxX: x,
-        maxY: y,
-        peak: 0,
-        lightSum: 0,
-      };
-      cluster.sumX += x * normalized;
-      cluster.sumY += y * normalized;
-      cluster.weightSum += normalized;
-      cluster.edgeSum += edge * normalized;
-      cluster.motionSum += motion * (0.2 + normalized);
-      cluster.count += 1;
-      cluster.minX = Math.min(cluster.minX, x);
-      cluster.minY = Math.min(cluster.minY, y);
-      cluster.maxX = Math.max(cluster.maxX, x);
-      cluster.maxY = Math.max(cluster.maxY, y);
-      cluster.peak = Math.max(cluster.peak, density);
-      cluster.lightSum += lightMask;
-      clusters.set(key, cluster);
-    }
-  }
-
-  const candidates = Array.from(clusters.values())
-    .map((cluster) => {
-      const weight = Math.max(cluster.count, 1);
-      const centerWeight = Math.max(cluster.weightSum, 0.001);
-      const light = clamp(cluster.lightSum / weight, 0, 1);
-      const energy = clamp((cluster.edgeSum / weight + cluster.motionSum / weight) / 140, 0, 1);
-      const boxWidth = Math.max(4, cluster.maxX - cluster.minX + clusterSpan * (0.12 + params.clusterShape * 0.26));
-      const boxHeight = Math.max(4, cluster.maxY - cluster.minY + clusterSpan * (0.12 + params.clusterShape * 0.26));
-      const centerX = cluster.sumX / centerWeight;
-      const centerY = cluster.sumY / centerWeight;
-      const score = (energy * 0.8 + light * 0.9) * (0.8 + Math.min(cluster.count, 14) * 0.08) * (0.6 + cluster.peak / 120);
-      return {
-        x: centerX,
-        y: centerY,
-        width: Math.min(width * 0.08, boxWidth),
-        height: Math.min(height * 0.08, boxHeight),
-        energy,
-        light,
-        score,
-        count: cluster.count,
-      };
-    })
-    .filter((cluster) => cluster.count >= (clusterOnly ? 1 : 2) && cluster.energy >= (clusterOnly ? 0.06 : 0.12))
-    .sort((a, b) => b.score - a.score);
-
-  const selected = [];
-  const maxClusters = Math.max(12, Math.round((16 + params.clusterQuantity * (intenseTrack ? 180 : clusterOnly ? 92 : 54)) * preset.clusterLimitScale));
-  candidates.forEach((candidate) => {
-    if (selected.length >= maxClusters) {
-      return;
-    }
-    const overlaps = selected.some((existing) => {
-      const dx = Math.abs(existing.x - candidate.x);
-      const dy = Math.abs(existing.y - candidate.y);
-      return dx < (existing.width + candidate.width) * 0.32 && dy < (existing.height + candidate.height) * 0.32;
-    });
-    if (!overlaps) {
-      selected.push(candidate);
-    }
-  });
-
-  if (params.showLines && selected.length > 1) {
-    targetCtx.save();
-    targetCtx.strokeStyle = intenseTrack ? "rgba(198,255,236,0.28)" : "rgba(211,255,229,0.2)";
-    targetCtx.lineWidth = intenseTrack ? 1.2 : 0.8;
-    for (let index = 1; index < selected.length; index += 1) {
-      const previous = selected[index - 1];
-      const current = selected[index];
-      targetCtx.beginPath();
-      targetCtx.moveTo(previous.x, previous.y);
-      targetCtx.lineTo(current.x, current.y);
-      targetCtx.stroke();
-    }
-    targetCtx.restore();
-  }
-
-  const drawTrackedBox = (cluster, index) => {
-    const halfWidth = cluster.width * 0.5;
-    const halfHeight = cluster.height * 0.5;
-    const x = cluster.x - halfWidth;
-    const y = cluster.y - halfHeight;
-    const corner = Math.max(2, Math.min(cluster.width, cluster.height) * 0.22);
-    const lineWidth = intenseTrack ? 0.9 + cluster.light * 0.7 : clusterOnly ? 1.2 + cluster.energy * 0.8 : 0.8 + cluster.energy * 0.7;
-    const alpha = intenseTrack ? 0.58 + cluster.light * 0.28 : clusterOnly ? 0.72 + cluster.energy * 0.14 : 0.38 + cluster.energy * 0.22;
-    const glow = intenseTrack ? 0.26 + cluster.light * 0.14 : clusterOnly ? 0.22 + cluster.energy * 0.1 : 0.12 + cluster.energy * 0.08;
-    const stroke = intenseTrack ? "198, 255, 236" : clusterOnly ? "255, 238, 224" : "211, 255, 229";
-
-    targetCtx.save();
-    targetCtx.strokeStyle = `rgba(${stroke}, ${alpha})`;
-    targetCtx.lineWidth = lineWidth;
-    targetCtx.shadowColor = `rgba(${stroke}, ${glow})`;
-    targetCtx.shadowBlur = clusterOnly ? 14 : 8;
-    targetCtx.strokeRect(x, y, cluster.width, cluster.height);
-
-    targetCtx.beginPath();
-    targetCtx.moveTo(x, y + corner);
-    targetCtx.lineTo(x, y);
-    targetCtx.lineTo(x + corner, y);
-    targetCtx.moveTo(x + cluster.width - corner, y);
-    targetCtx.lineTo(x + cluster.width, y);
-    targetCtx.lineTo(x + cluster.width, y + corner);
-    targetCtx.moveTo(x + cluster.width, y + cluster.height - corner);
-    targetCtx.lineTo(x + cluster.width, y + cluster.height);
-    targetCtx.lineTo(x + cluster.width - corner, y + cluster.height);
-    targetCtx.moveTo(x + corner, y + cluster.height);
-    targetCtx.lineTo(x, y + cluster.height);
-    targetCtx.lineTo(x, y + cluster.height - corner);
-    targetCtx.stroke();
-
-    if (clusterOnly) {
-      targetCtx.fillStyle = `rgba(${stroke}, ${intenseTrack ? 0.12 : 0.06})`;
-      targetCtx.fillRect(x, y, cluster.width, cluster.height);
-    }
-
-    if (params.showCoordinates) {
-      targetCtx.fillStyle = `rgba(${stroke}, 0.88)`;
-      targetCtx.font = '9px "IBM Plex Mono", monospace';
-      targetCtx.textAlign = "left";
-      targetCtx.fillText(`${Math.round(cluster.x)},${Math.round(cluster.y)}`, x + 2, y - 3 - (index % 2) * 10);
-    }
-    targetCtx.restore();
-  };
-
-  selected.forEach(drawTrackedBox);
-
-  targetCtx.save();
-  targetCtx.globalCompositeOperation = "screen";
-  targetCtx.globalAlpha = intenseTrack ? 0.28 : clusterOnly ? 0.26 : 0.14;
-  targetCtx.filter = `blur(${intenseTrack ? 0.9 : clusterOnly ? 1.2 : 0.8}px)`;
-  ghostCtx.clearRect(0, 0, width, height);
-  ghostCtx.drawImage(targetCtx.canvas, 0, 0);
-  targetCtx.drawImage(layer.runtime.ghostCanvas, 0, 0);
-  targetCtx.restore();
-}
-
-// this monitor layer builds the green phosphor crt overlay.
-function renderMonitorLayer(layer, sourceImageData, elapsed) {
-  const { width, height, data } = sourceImageData;
-  const targetCtx = layer.runtime.ctx;
-  const glowCtx = layer.runtime.ghostCtx;
-  const output = new Uint8ClampedArray(data.length);
-  const phase = elapsed * 1.8;
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4;
-      const luma = (data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114) / 255;
-      const curve = Math.pow(luma, 0.86);
-      const dotMask = 0.78 + Math.sin((x + phase * 8) * 0.85) * 0.08 + Math.cos((y - phase * 4) * 0.32) * 0.06;
-      const triad = x % 3 === 0 ? 1.08 : x % 3 === 1 ? 0.94 : 0.82;
-      const scanMask = y % 4 === 0 ? 0.72 : y % 2 === 0 ? 0.9 : 1;
-      const vignetteX = 1 - Math.pow((x / Math.max(1, width - 1)) * 2 - 1, 2) * 0.18;
-      const vignetteY = 1 - Math.pow((y / Math.max(1, height - 1)) * 2 - 1, 2) * 0.24;
-      const noise = (Math.sin((x + 3) * 12.9898 + (y + 7) * 78.233 + elapsed * 24) * 43758.5453) % 1;
-      const glow = clamp(curve * 1.16 * dotMask * triad * scanMask * vignetteX * vignetteY + noise * 0.025, 0, 1);
-      const green = Math.round(glow * 255);
-      output[index] = Math.round(green * 0.18);
-      output[index + 1] = Math.round(clamp(green * 1.05 + 18, 0, 255));
-      output[index + 2] = Math.round(green * 0.24);
-      output[index + 3] = 255;
-    }
-  }
-
-  targetCtx.clearRect(0, 0, width, height);
-  targetCtx.putImageData(new ImageData(output, width, height), 0, 0);
-
-  glowCtx.clearRect(0, 0, width, height);
-  glowCtx.drawImage(targetCtx.canvas, 0, 0);
-
-  targetCtx.save();
-  targetCtx.globalCompositeOperation = "screen";
-  targetCtx.globalAlpha = 0.62;
-  targetCtx.filter = "blur(4px)";
-  targetCtx.drawImage(layer.runtime.ghostCanvas, 0, 0);
-  targetCtx.filter = "none";
-  targetCtx.globalAlpha = 0.18;
-  targetCtx.fillStyle = "rgba(72, 255, 124, 0.9)";
-  targetCtx.fillRect(0, 0, width, height);
-  targetCtx.restore();
-
-  targetCtx.save();
-  targetCtx.globalAlpha = 0.22;
-  for (let y = 0; y < height; y += 3) {
-    targetCtx.fillStyle = y % 6 === 0 ? "rgba(0, 0, 0, 0.38)" : "rgba(98, 255, 148, 0.04)";
-    targetCtx.fillRect(0, y, width, 1);
-  }
-  targetCtx.restore();
-}
-
-// this crt layer adds scanlines, rgb shift, glow, and edge bloom.
-function renderCrtLayer(layer, sourceImageData) {
-  const targetCtx = layer.runtime.ctx;
-  const { width, height } = targetCtx.canvas;
-  targetCtx.clearRect(0, 0, width, height);
-  const preset = getQualityPreset();
-
-  const rgbShift = layer.params.rgb * width;
-  const glow = layer.params.glow;
-  const scanStrength = layer.params.scan;
-  const edgeGlow = layer.params.edgeGlow || 0;
-
-  if (glow > 0) {
-    targetCtx.save();
-    targetCtx.globalCompositeOperation = "screen";
-    targetCtx.globalAlpha = Math.min(0.36, glow * 0.18);
-    targetCtx.filter = `blur(${Math.max(0.1, glow * 3)}px)`;
-    targetCtx.drawImage(sourceCanvas, 0, 0);
-    targetCtx.fillStyle = `rgba(116, 71, 255, ${Math.min(0.18, glow * 0.08)})`;
-    targetCtx.fillRect(0, 0, width, height);
-    targetCtx.restore();
-  }
-
-  if (rgbShift > 0.1) {
-    targetCtx.save();
-    targetCtx.globalCompositeOperation = "lighter";
-    targetCtx.globalAlpha = 0.16;
-    targetCtx.drawImage(sourceCanvas, -rgbShift, 0);
-    targetCtx.globalCompositeOperation = "multiply";
-    targetCtx.fillStyle = "rgba(116, 71, 255, 0.62)";
-    targetCtx.fillRect(0, 0, width, height);
-    targetCtx.globalCompositeOperation = "screen";
-    targetCtx.globalAlpha = 0.14;
-    targetCtx.drawImage(sourceCanvas, rgbShift, 0);
-    targetCtx.restore();
-  }
-
-  if (scanStrength > 0) {
-    targetCtx.save();
-    targetCtx.globalAlpha = scanStrength * 0.85;
-    for (let y = 0; y < height; y += 4) {
-      targetCtx.fillStyle = `rgba(0,0,0,${0.14 + ((y / 4 + Math.floor(performance.now() / 50)) % 2) * 0.08})`;
-      targetCtx.fillRect(0, y, width, 1);
-    }
-    targetCtx.restore();
-  }
-
-  if (edgeGlow > 0) {
-    const blockSize = Math.max(3, Math.round((3 + edgeGlow * 11) * preset.edgeBlockScale));
-    const edgeImage = sourceImageData || sourceCtx.getImageData(0, 0, width, height);
-    const edgeOutput = new Uint8ClampedArray(edgeImage.data.length);
-
-    const lumaAt = (x, y) => {
-      const px = clamp(x, 0, width - 1);
-      const py = clamp(y, 0, height - 1);
-      const index = (py * width + px) * 4;
-      return (
-        edgeImage.data[index] * 0.299 +
-        edgeImage.data[index + 1] * 0.587 +
-        edgeImage.data[index + 2] * 0.114
-      );
-    };
-
-    for (let by = 0; by < height; by += blockSize) {
-      for (let bx = 0; bx < width; bx += blockSize) {
-        const sampleX = Math.min(width - 2, bx + Math.floor(blockSize * 0.5));
-        const sampleY = Math.min(height - 2, by + Math.floor(blockSize * 0.5));
-        const edgeX = Math.abs(lumaAt(sampleX + 1, sampleY) - lumaAt(sampleX - 1, sampleY));
-        const edgeY = Math.abs(lumaAt(sampleX, sampleY + 1) - lumaAt(sampleX, sampleY - 1));
-        const edgeStrength = clamp((edgeX + edgeY) / 180, 0, 1);
-        if (edgeStrength <= 0.08) {
-          continue;
-        }
-
-        const glowAlpha = Math.round(clamp(edgeStrength * (0.5 + edgeGlow * 1.4), 0, 1) * 255);
-        const maxY = Math.min(height, by + blockSize);
-        const maxX = Math.min(width, bx + blockSize);
-        for (let y = by; y < maxY; y += 1) {
-          for (let x = bx; x < maxX; x += 1) {
-            const index = (y * width + x) * 4;
-            edgeOutput[index] = 116;
-            edgeOutput[index + 1] = 71;
-            edgeOutput[index + 2] = 255;
-            edgeOutput[index + 3] = glowAlpha;
-          }
-        }
-      }
-    }
-
-    layer.runtime.auxCtx.clearRect(0, 0, width, height);
-    layer.runtime.auxCtx.putImageData(new ImageData(edgeOutput, width, height), 0, 0);
-    targetCtx.save();
-    targetCtx.globalCompositeOperation = "screen";
-    targetCtx.globalAlpha = 0.35 + edgeGlow * 0.5;
-    targetCtx.filter = `blur(${Math.max(0.2, edgeGlow * 4)}px)`;
-    targetCtx.drawImage(layer.runtime.auxCanvas, 0, 0);
-    targetCtx.filter = "none";
-    targetCtx.globalAlpha = 0.6 + edgeGlow * 0.3;
-    targetCtx.drawImage(layer.runtime.auxCanvas, 0, 0);
-    targetCtx.restore();
-  }
-}
-
-// these preset wrappers push generated images back into layer canvases.
-function renderPresetLayer(layer, sourceImageData, elapsed) {
-  const processed = buildPresetImage(sourceImageData, elapsed, layer);
-  layer.runtime.ctx.clearRect(0, 0, processed.width, processed.height);
-  layer.runtime.ctx.putImageData(processed, 0, 0);
-
-  if (layer.type === "blu") {
-    layer.runtime.ctx.save();
-    layer.runtime.ctx.globalAlpha = 0.22 + layer.params.grit * 0.18;
-    for (let y = 0; y < layer.runtime.canvas.height; y += 3) {
-      layer.runtime.ctx.fillStyle = y % 6 === 0 ? "rgba(0,18,42,0.35)" : "rgba(255,255,255,0.04)";
-      layer.runtime.ctx.fillRect(0, y, layer.runtime.canvas.width, 1);
-    }
-    layer.runtime.ctx.restore();
-  }
-
-  layer.runtime.ghostCtx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
-  layer.runtime.ghostCtx.drawImage(layer.runtime.canvas, 0, 0);
-}
-
-function renderInfraredLayer(layer, sourceImageData, elapsed) {
-  const processed = buildInfraredImage(sourceImageData, elapsed, layer);
-  const targetCtx = layer.runtime.ctx;
-  const ghostCtx = layer.runtime.ghostCtx;
-
-  targetCtx.clearRect(0, 0, processed.width, processed.height);
-  targetCtx.putImageData(processed, 0, 0);
-
-  ghostCtx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
-  ghostCtx.drawImage(layer.runtime.canvas, 0, 0);
-
-  targetCtx.save();
-  targetCtx.globalCompositeOperation = "screen";
-  targetCtx.globalAlpha = 0.22;
-  targetCtx.filter = "blur(5px)";
-  targetCtx.drawImage(layer.runtime.ghostCanvas, 0, 0);
-  targetCtx.filter = "none";
-  targetCtx.globalAlpha = 0.12;
-  for (let y = 0; y < layer.runtime.canvas.height; y += 3) {
-    targetCtx.fillStyle = y % 6 === 0 ? "rgba(16, 8, 10, 0.26)" : "rgba(255, 255, 255, 0.03)";
-    targetCtx.fillRect(0, y, layer.runtime.canvas.width, 1);
-  }
-  targetCtx.restore();
-}
-
-// this detect layer compares the current frame to the previous one for motion blocks.
-function renderDetectLayer(layer, sourceImageData) {
-  const { width, height, data } = sourceImageData;
-  const previousData = previousSourceImageData?.data;
-  const targetCtx = layer.runtime.ctx;
-  const ghostCtx = layer.runtime.ghostCtx;
-  const auxCtx = layer.runtime.auxCtx;
-  const detectState = layer.runtime.detectState;
-  const preset = getQualityPreset();
-  const blockSize = Math.max(2, Math.round(preset.detectBlock));
-  const threshold = clamp(layer.params.threshold || 0.18, 0, 0.96);
-  const decay = clamp(layer.params.decay || 0.52, 0, 0.95);
-  const trigger = clamp(layer.params.trigger || 0.18, 0, 1);
-  const output = new Uint8ClampedArray(data.length);
-  let totalActivity = 0;
-  let blockCount = 0;
-
-  targetCtx.clearRect(0, 0, width, height);
-  auxCtx.clearRect(0, 0, width, height);
-
-  if (!previousData) {
-    detectState.history.length = 0;
-    detectState.activeAverage = 0;
-    ghostCtx.clearRect(0, 0, width, height);
-    return;
-  }
-
-  const lumaAt = (buffer, x, y) => {
-    const px = clamp(x, 0, width - 1);
-    const py = clamp(y, 0, height - 1);
-    const index = (py * width + px) * 4;
-    return buffer[index] * 0.299 + buffer[index + 1] * 0.587 + buffer[index + 2] * 0.114;
-  };
-
-  for (let by = 0; by < height; by += blockSize) {
-    for (let bx = 0; bx < width; bx += blockSize) {
-      const sampleA = [bx + blockSize * 0.25, by + blockSize * 0.25];
-      const sampleB = [bx + blockSize * 0.75, by + blockSize * 0.75];
-      const currentLuma = (lumaAt(data, sampleA[0], sampleA[1]) + lumaAt(data, sampleB[0], sampleA[1]) + lumaAt(data, sampleA[0], sampleB[1]) + lumaAt(data, sampleB[0], sampleB[1])) * 0.25;
-      const previousLuma = (lumaAt(previousData, sampleA[0], sampleA[1]) + lumaAt(previousData, sampleB[0], sampleA[1]) + lumaAt(previousData, sampleA[0], sampleB[1]) + lumaAt(previousData, sampleB[0], sampleB[1])) * 0.25;
-      const activity = clamp((Math.abs(currentLuma - previousLuma) / 255 - threshold) / Math.max(0.001, 1 - threshold), 0, 1);
-
-      blockCount += 1;
-      totalActivity += activity;
-      if (activity <= 0.001) {
-        continue;
-      }
-
-      const sampleIndex = (Math.min(height - 1, Math.round(by + blockSize * 0.5)) * width + Math.min(width - 1, Math.round(bx + blockSize * 0.5))) * 4;
-      const sourceRed = data[sampleIndex] / 255;
-      const tone = hslToRgb(0.01 + activity * 0.09, 0.94, clamp(0.18 + activity * 0.46 + sourceRed * 0.1, 0, 0.92));
-      const alpha = Math.round(clamp(activity * (0.8 + sourceRed * 0.4), 0, 1) * 255);
-      const maxY = Math.min(height, by + blockSize);
-      const maxX = Math.min(width, bx + blockSize);
-
-      for (let y = by; y < maxY; y += 1) {
-        for (let x = bx; x < maxX; x += 1) {
-          const index = (y * width + x) * 4;
-          output[index] = tone.r;
-          output[index + 1] = tone.g;
-          output[index + 2] = tone.b;
-          output[index + 3] = alpha;
-        }
-      }
-    }
-  }
-
-  detectState.history.push(blockCount ? totalActivity / blockCount : 0);
-  if (detectState.history.length > 30) {
-    detectState.history.shift();
-  }
-  detectState.activeAverage = detectState.history.reduce((sum, value) => sum + value, 0) / Math.max(1, detectState.history.length);
-
-  auxCtx.putImageData(new ImageData(output, width, height), 0, 0);
-
-  if (decay > 0) {
-    targetCtx.save();
-    targetCtx.globalAlpha = 0.32 + decay * 0.44;
-    targetCtx.filter = `blur(${Math.max(0.2, decay * 2.6)}px)`;
-    targetCtx.drawImage(layer.runtime.ghostCanvas, 0, 0);
-    targetCtx.filter = "none";
-    targetCtx.restore();
-  }
-
-  targetCtx.save();
-  targetCtx.globalCompositeOperation = "screen";
-  targetCtx.globalAlpha = 0.96;
-  targetCtx.drawImage(layer.runtime.auxCanvas, 0, 0);
-  targetCtx.globalAlpha = 0.3;
-  targetCtx.filter = `blur(${Math.max(0.2, 1 + decay * 3)}px)`;
-  targetCtx.drawImage(layer.runtime.auxCanvas, 0, 0);
-  targetCtx.filter = "none";
-  targetCtx.restore();
-
-  if (detectState.activeAverage > trigger) {
-    const alertSize = Math.max(28, Math.round(Math.min(width, height) * 0.085));
-    targetCtx.save();
-    targetCtx.fillStyle = "rgba(255, 38, 12, 0.92)";
-    targetCtx.fillRect(0, 0, alertSize, alertSize);
-    targetCtx.strokeStyle = "rgba(255, 242, 230, 0.65)";
-    targetCtx.lineWidth = 1;
-    targetCtx.strokeRect(0.5, 0.5, alertSize - 1, alertSize - 1);
-    targetCtx.restore();
-  }
-
-  ghostCtx.clearRect(0, 0, width, height);
-  ghostCtx.drawImage(targetCtx.canvas, 0, 0);
+  const wave =
+    Math.sin(elapsed * 23.7) * 0.55 +
+    Math.sin(elapsed * 12.4 + 1.7) * 0.3 +
+    Math.sin(elapsed * 57.3 + 0.2) * 0.15;
+  const pulse = Math.pow(Math.max(0, Math.sin(elapsed * 18.5 + 0.9)), 14);
+  return clamp(1 + wave * amount * 0.12 - pulse * amount * 0.22, 0.58, 1.16);
 }
 
 // this editor pass runs the main per-frame adjustments before compositing.
-function applyEditorPass(targetCtx, params, runtime) {
+function applyEditorPass(targetCtx, params, runtime, elapsed = 0) {
   const width = targetCtx.canvas.width;
   const height = targetCtx.canvas.height;
   const imageData = targetCtx.getImageData(0, 0, width, height);
   const source = imageData.data;
   const output = new Uint8ClampedArray(source.length);
-  const brightnessOffset = params.brightness * 255;
+  const brightness = getEditorBaseValue(params, "brightness");
+  const contrast = getEditorBaseValue(params, "contrast");
+  const highlights = getEditorBaseValue(params, "highlights");
+  const shadows = getEditorBaseValue(params, "shadows");
+  const sharpness = getEditorBaseValue(params, "sharpness");
+  const flicker = getEditorBaseValue(params, "flicker");
+  const glowAmount = getEditorBaseValue(params, "glow");
+  const blurAmount = getEditorBaseValue(params, "blur");
+  const slowShutter = getEditorBaseValue(params, "slowShutter");
+  const edgeGlow = getEditorBaseValue(params, "edgeGlow");
+  const crtGlow = getEditorBaseValue(params, "crtGlow");
+  const brightnessOffset = brightness * 255;
+  const flickerGain = getEditorFlickerGain(elapsed, flicker);
+  let preserveGhostTrail = false;
 
   const sample = (x, y, channel) => {
     const px = clamp(x, 0, width - 1);
@@ -1641,11 +1119,12 @@ function applyEditorPass(targetCtx, params, runtime) {
       for (let channel = 0; channel < 3; channel += 1) {
         const center = source[index + channel];
         const blur = (sample(x - 1, y, channel) + sample(x + 1, y, channel) + sample(x, y - 1, channel) + sample(x, y + 1, channel)) / 4;
-        let value = center + (center - blur) * params.sharpness * 1.35;
-        value = (value - 128) * params.contrast + 128;
+        let value = center + (center - blur) * sharpness * 1.35;
+        value = (value - 128) * contrast + 128;
         value += brightnessOffset;
-        value += params.highlights * lightMask * 42;
-        value += params.shadows * shadowMask * 38;
+        value += highlights * lightMask * 42;
+        value += shadows * shadowMask * 38;
+        value *= flickerGain;
         output[index + channel] = clamp(Math.round(value), 0, 255);
       }
 
@@ -1664,7 +1143,61 @@ function applyEditorPass(targetCtx, params, runtime) {
 
   applyHueConnectedComponentsPass(targetCtx, params, runtime);
 
-  if (params.edgeGlow > 0 && runtime?.auxCtx) {
+  if (blurAmount > 0 && runtime?.auxCtx) {
+    runtime.auxCtx.clearRect(0, 0, width, height);
+    runtime.auxCtx.drawImage(targetCtx.canvas, 0, 0);
+    targetCtx.save();
+    targetCtx.globalAlpha = Math.min(0.72, 0.14 + blurAmount * 0.38);
+    targetCtx.filter = `blur(${Math.max(0.2, blurAmount * 5)}px)`;
+    targetCtx.drawImage(runtime.auxCanvas, 0, 0);
+    targetCtx.restore();
+  }
+
+  if (glowAmount > 0 && runtime?.auxCtx) {
+    runtime.auxCtx.clearRect(0, 0, width, height);
+    runtime.auxCtx.drawImage(targetCtx.canvas, 0, 0);
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = "screen";
+    targetCtx.globalAlpha = Math.min(0.72, glowAmount * 0.24);
+    targetCtx.filter = `blur(${Math.max(0.3, glowAmount * 6.5)}px)`;
+    targetCtx.drawImage(runtime.auxCanvas, 0, 0);
+    targetCtx.filter = "none";
+    targetCtx.globalAlpha = Math.min(0.16, glowAmount * 0.07);
+    targetCtx.fillStyle = "rgba(216, 255, 230, 0.95)";
+    targetCtx.fillRect(0, 0, width, height);
+    targetCtx.restore();
+  }
+
+  if (slowShutter > 0 && runtime?.ghostCtx && runtime?.auxCtx && runtime?.bufferCtx) {
+    runtime.bufferCtx.clearRect(0, 0, width, height);
+    runtime.bufferCtx.drawImage(runtime.ghostCanvas, 0, 0);
+    runtime.auxCtx.clearRect(0, 0, width, height);
+    runtime.auxCtx.drawImage(targetCtx.canvas, 0, 0);
+
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = "screen";
+    targetCtx.globalAlpha = Math.min(0.58, 0.08 + slowShutter * 0.34);
+    targetCtx.filter = `blur(${Math.max(0.2, slowShutter * 4.5)}px)`;
+    targetCtx.drawImage(runtime.bufferCanvas, 0, 0);
+    targetCtx.filter = "none";
+    targetCtx.globalCompositeOperation = "source-over";
+    targetCtx.globalAlpha = Math.min(0.8, slowShutter * 0.62);
+    targetCtx.drawImage(runtime.bufferCanvas, 0, 0);
+    targetCtx.restore();
+
+    runtime.ghostCtx.clearRect(0, 0, width, height);
+    runtime.ghostCtx.save();
+    runtime.ghostCtx.globalAlpha = 0.18 + slowShutter * 0.7;
+    runtime.ghostCtx.filter = `blur(${Math.max(0.1, slowShutter * 2.2)}px)`;
+    runtime.ghostCtx.drawImage(runtime.bufferCanvas, 0, 0);
+    runtime.ghostCtx.filter = "none";
+    runtime.ghostCtx.globalAlpha = Math.min(0.82, 0.32 + slowShutter * 0.32);
+    runtime.ghostCtx.drawImage(runtime.auxCanvas, 0, 0);
+    runtime.ghostCtx.restore();
+    preserveGhostTrail = true;
+  }
+
+  if (edgeGlow > 0 && runtime?.auxCtx) {
     const preset = getQualityPreset();
     const passImage = targetCtx.getImageData(0, 0, width, height);
     const edgeOutput = new Uint8ClampedArray(passImage.data.length);
@@ -1675,7 +1208,7 @@ function applyEditorPass(targetCtx, params, runtime) {
       return passImage.data[index] * 0.299 + passImage.data[index + 1] * 0.587 + passImage.data[index + 2] * 0.114;
     };
 
-    const blockSize = Math.max(2, Math.round((2 + params.edgeGlow * 7) * preset.edgeBlockScale));
+    const blockSize = Math.max(2, Math.round((2 + edgeGlow * 7) * preset.edgeBlockScale));
     for (let by = 0; by < height; by += blockSize) {
       for (let bx = 0; bx < width; bx += blockSize) {
         const sampleX = Math.min(width - 2, bx + Math.floor(blockSize * 0.5));
@@ -1687,7 +1220,7 @@ function applyEditorPass(targetCtx, params, runtime) {
           continue;
         }
 
-        const alpha = Math.round(clamp(edgeStrength * (0.42 + params.edgeGlow), 0, 1) * 255);
+        const alpha = Math.round(clamp(edgeStrength * (0.42 + edgeGlow), 0, 1) * 255);
         const maxY = Math.min(height, by + blockSize);
         const maxX = Math.min(width, bx + blockSize);
         for (let y = by; y < maxY; y += 1) {
@@ -1706,31 +1239,31 @@ function applyEditorPass(targetCtx, params, runtime) {
     runtime.auxCtx.putImageData(new ImageData(edgeOutput, width, height), 0, 0);
     targetCtx.save();
     targetCtx.globalCompositeOperation = "screen";
-    targetCtx.globalAlpha = 0.34 + params.edgeGlow * 0.26;
-    targetCtx.filter = `blur(${Math.max(0.2, params.edgeGlow * 5)}px)`;
+    targetCtx.globalAlpha = 0.34 + edgeGlow * 0.26;
+    targetCtx.filter = `blur(${Math.max(0.2, edgeGlow * 5)}px)`;
     targetCtx.drawImage(runtime.auxCanvas, 0, 0);
     targetCtx.filter = "none";
-    targetCtx.globalAlpha = 0.52 + params.edgeGlow * 0.2;
+    targetCtx.globalAlpha = 0.52 + edgeGlow * 0.2;
     targetCtx.drawImage(runtime.auxCanvas, 0, 0);
     targetCtx.restore();
   }
 
-  if (params.crtGlow > 0 && runtime?.auxCtx) {
+  if (crtGlow > 0 && runtime?.auxCtx) {
     runtime.auxCtx.clearRect(0, 0, width, height);
     runtime.auxCtx.drawImage(targetCtx.canvas, 0, 0);
     targetCtx.save();
     targetCtx.globalCompositeOperation = "screen";
-    targetCtx.globalAlpha = Math.min(0.8, params.crtGlow * 0.34);
-    targetCtx.filter = `blur(${Math.max(0.3, params.crtGlow * 6)}px)`;
+    targetCtx.globalAlpha = Math.min(0.8, crtGlow * 0.34);
+    targetCtx.filter = `blur(${Math.max(0.3, crtGlow * 6)}px)`;
     targetCtx.drawImage(runtime.auxCanvas, 0, 0);
     targetCtx.filter = "none";
-    targetCtx.globalAlpha = 0.08 + params.crtGlow * 0.1;
+    targetCtx.globalAlpha = 0.08 + crtGlow * 0.1;
     targetCtx.fillStyle = "rgba(84, 255, 132, 0.9)";
     targetCtx.fillRect(0, 0, width, height);
     targetCtx.restore();
 
     targetCtx.save();
-    targetCtx.globalAlpha = Math.min(0.55, params.crtGlow * 0.32);
+    targetCtx.globalAlpha = Math.min(0.55, crtGlow * 0.32);
     for (let y = 0; y < height; y += 3) {
       targetCtx.fillStyle = y % 6 === 0 ? "rgba(0,0,0,0.2)" : "rgba(106,255,156,0.035)";
       targetCtx.fillRect(0, y, width, 1);
@@ -1738,7 +1271,7 @@ function applyEditorPass(targetCtx, params, runtime) {
     targetCtx.restore();
   }
 
-  if (runtime?.ghostCtx) {
+  if (runtime?.ghostCtx && !preserveGhostTrail) {
     runtime.ghostCtx.clearRect(0, 0, width, height);
     runtime.ghostCtx.drawImage(targetCtx.canvas, 0, 0);
     runtime.ghostCtx.globalAlpha = 1;
@@ -1753,61 +1286,19 @@ function renderLayer(layer, sourceImageData, elapsed) {
     return;
   }
 
-  if (layer.type === "crt") {
-    renderCrtLayer(layer, sourceImageData);
-    return;
-  }
-
-  if (layer.type === "cluster") {
-    if (!sourceImageData) {
-      return;
-    }
-    renderClusterLayer(layer, sourceImageData, elapsed);
-    return;
-  }
-
-  if (layer.type === "clusterOnly" || layer.type === "clusterTrack") {
-    if (!sourceImageData) {
-      return;
-    }
-    renderClusterLayer(layer, sourceImageData, elapsed);
-    return;
-  }
-
-  if (layer.type === "monitor") {
-    if (!sourceImageData) {
-      return;
-    }
-    renderMonitorLayer(layer, sourceImageData, elapsed);
-    return;
-  }
-
-  if (layer.type === "infrared") {
-    if (!sourceImageData) {
-      return;
-    }
-    renderInfraredLayer(layer, sourceImageData, elapsed);
-    return;
-  }
-
-  if (layer.type === "detect") {
-    if (!sourceImageData) {
-      return;
-    }
-    renderDetectLayer(layer, sourceImageData);
-    return;
-  }
-
-  if (layer.type === "black" || layer.type === "blu") {
-    if (!sourceImageData) {
-      return;
-    }
-    renderPresetLayer(layer, sourceImageData, elapsed);
-  }
+  renderEffectLayer({
+    layer,
+    sourceImageData,
+    elapsed,
+    sourceCanvas,
+    sourceCtx,
+    previousSourceImageData,
+    getQualityPreset,
+  });
 }
 
 // this blends each rendered layer into the composite output buffer.
-function compositeLayer(layer) {
+function compositeLayer(layer, elapsed) {
   if (!layer.visible) {
     return;
   }
@@ -1820,7 +1311,7 @@ function compositeLayer(layer) {
     splitCtx.drawImage(compositeCanvas, 0, 0);
     scratchCtx.clearRect(0, 0, scratchCanvas.width, scratchCanvas.height);
     scratchCtx.drawImage(splitCanvas, 0, 0);
-    applyEditorPass(scratchCtx, layer.params, layer.runtime);
+    applyEditorPass(scratchCtx, layer.params, layer.runtime, elapsed);
     compositeCtx.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
     compositeCtx.globalAlpha = 1 - layer.opacity;
     compositeCtx.drawImage(splitCanvas, 0, 0);
@@ -1863,7 +1354,7 @@ function renderCompositeFrame(elapsed) {
 
   activeLayers.forEach((layer) => {
     renderLayer(layer, sourceImageData, elapsed);
-    compositeLayer(layer);
+    compositeLayer(layer, elapsed);
   });
 
   previousSourceImageData = needsAnalysis ? sourceImageData : null;
@@ -1874,12 +1365,17 @@ function drawOutputFrame() {
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  if (splitScreenEnabled) {
+  if (splitScreenMode === SPLIT_SCREEN_MODES.side) {
     const halfWidth = canvas.width / 2;
     drawSourceCover(compositeCanvas, ctx, 0, 0, halfWidth, canvas.height);
     drawSourceCover(sourceCanvas, ctx, halfWidth, 0, halfWidth, canvas.height);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(Math.round(halfWidth) - 1, 0, 2, canvas.height);
+    return;
+  }
+
+  if (splitScreenMode === SPLIT_SCREEN_MODES.stack) {
+    const halfHeight = canvas.height / 2;
+    drawSourceCover(sourceCanvas, ctx, 0, 0, canvas.width, halfHeight);
+    drawSourceCover(compositeCanvas, ctx, 0, halfHeight, canvas.width, halfHeight);
   } else {
     ctx.drawImage(compositeCanvas, 0, 0);
   }
@@ -1934,8 +1430,36 @@ function stopLoop() {
   lastRenderAt = 0;
 }
 
-function updateSplitButton() {
-  splitButton.classList.toggle("active", splitScreenEnabled);
+function updateDisplayModeReadout() {
+  if (!displayModeValue) {
+    return;
+  }
+  const labelMap = {
+    [SPLIT_SCREEN_MODES.off]: "Composite Monitor",
+    [SPLIT_SCREEN_MODES.side]: "Side Split: FX | Raw",
+    [SPLIT_SCREEN_MODES.stack]: "Stacked Split: Raw / FX",
+  };
+  displayModeValue.textContent = labelMap[splitScreenMode] || labelMap[SPLIT_SCREEN_MODES.off];
+}
+
+function updateSplitButtons() {
+  splitButton?.classList.toggle("active", splitScreenMode === SPLIT_SCREEN_MODES.side);
+  splitStackButton?.classList.toggle("active", splitScreenMode === SPLIT_SCREEN_MODES.stack);
+  updateDisplayModeReadout();
+}
+
+function setSplitScreenMode(mode) {
+  splitScreenMode = splitScreenMode === mode ? SPLIT_SCREEN_MODES.off : mode;
+  updateSplitButtons();
+  requestPreviewRefresh();
+}
+
+function updateExportButton() {
+  if (!exportButton) {
+    return;
+  }
+  exportButton.textContent = isRecording ? "Stop and Export" : "Record and Render";
+  exportButton.classList.toggle("active", isRecording);
 }
 
 function revokeActiveUrl() {
@@ -2078,14 +1602,38 @@ function resetVideoEffects() {
   setStatus("Video effects reset.");
 }
 
-// this records the current composite loop from the preview canvas.
+function cleanupRecordingState() {
+  activeRecorder = null;
+  if (activeRecordStream) {
+    activeRecordStream.getTracks().forEach((track) => track.stop());
+    activeRecordStream = null;
+  }
+  isRecording = false;
+  updateExportButton();
+}
+
+function stopExportRecording() {
+  if (!activeRecorder || activeRecorder.state === "inactive") {
+    return;
+  }
+  setStatus("Stopping recording and exporting...");
+  activeRecorder.stop();
+}
+
+// this records the current composite output until the user stops it.
 async function exportLoop() {
   if (isRecording) {
+    stopExportRecording();
     return;
   }
 
   if (!sourceVideo.src) {
     setStatus("Upload a video first.");
+    return;
+  }
+
+  if (typeof MediaRecorder === "undefined") {
+    setStatus("MediaRecorder is unavailable in this browser.");
     return;
   }
 
@@ -2103,9 +1651,11 @@ async function exportLoop() {
     videoBitsPerSecond: 8_000_000,
   });
 
+  activeRecorder = recorder;
+  activeRecordStream = stream;
   isRecording = true;
-  exportButton.disabled = true;
-  setStatus("Recording 7 second composite loop...");
+  updateExportButton();
+  setStatus("Recording started. Press Record and Render again to stop and export.");
   recorder.ondataavailable = (event) => {
     if (event.data && event.data.size > 0) {
       chunks.push(event.data);
@@ -2113,43 +1663,38 @@ async function exportLoop() {
   };
 
   recorder.onerror = () => {
-    isRecording = false;
-    exportButton.disabled = false;
-    stream.getTracks().forEach((track) => track.stop());
+    cleanupRecordingState();
     setStatus("Recording failed.");
   };
 
   recorder.onstop = () => {
+    if (!chunks.length) {
+      cleanupRecordingState();
+      setStatus("Recording stopped with no video data.");
+      return;
+    }
     const blob = new Blob(chunks, { type: mimeType });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "crtvideo-loop.webm";
+    anchor.download = "crtvideo-recording.webm";
     anchor.click();
     URL.revokeObjectURL(url);
-    stream.getTracks().forEach((track) => track.stop());
-    isRecording = false;
-    exportButton.disabled = false;
-    setStatus("Export complete. Downloaded `crtvideo-loop.webm`.");
+    cleanupRecordingState();
+    setStatus("Export complete. Downloaded `crtvideo-recording.webm`.");
   };
 
-  sourceVideo.currentTime = 0;
-  try {
-    await sourceVideo.play();
-  } catch {
-    stream.getTracks().forEach((track) => track.stop());
-    isRecording = false;
-    exportButton.disabled = false;
-    setStatus("Playback is blocked. Press Play / Pause once and try export again.");
-    return;
+  if (sourceVideo.paused && !reversePlaybackHandle) {
+    try {
+      await sourceVideo.play();
+    } catch {
+      cleanupRecordingState();
+      setStatus("Playback is blocked. Press Play / Pause once and try export again.");
+      return;
+    }
   }
 
   recorder.start();
-  window.setTimeout(() => {
-    if (recorder.state !== "inactive") {
-      recorder.stop();
-    }
-  }, LOOP_DURATION * 1000);
 }
 
 // these media events keep the preview responsive without rerendering while idle.
@@ -2206,9 +1751,11 @@ exportButton.addEventListener("click", () => {
 });
 
 splitButton.addEventListener("click", () => {
-  splitScreenEnabled = !splitScreenEnabled;
-  updateSplitButton();
-  requestPreviewRefresh();
+  setSplitScreenMode(SPLIT_SCREEN_MODES.side);
+});
+
+splitStackButton?.addEventListener("click", () => {
+  setSplitScreenMode(SPLIT_SCREEN_MODES.stack);
 });
 
 qualitySelect?.addEventListener("change", () => {
@@ -2239,15 +1786,7 @@ addLayerButtons.forEach((button) => {
   });
 });
 
-[
-  [brightnessSlider, "brightness"],
-  [contrastSlider, "contrast"],
-  [highlightsSlider, "highlights"],
-  [shadowsSlider, "shadows"],
-  [sharpnessSlider, "sharpness"],
-  [editorEdgeGlowSlider, "edgeGlow"],
-  [crtGlowSlider, "crtGlow"],
-].forEach(([slider, key]) => {
+EDITOR_CONTROL_BINDINGS.forEach(({ slider, key, output }) => {
   slider.addEventListener("input", () => {
     markControlTouched(slider);
     const layer = layerEditor.getEditorLayer();
@@ -2255,30 +1794,13 @@ addLayerButtons.forEach((button) => {
       return;
     }
     layer.params[key] = Number(slider.value);
-    const outputMap = {
-      brightness: brightnessOutput,
-      contrast: contrastOutput,
-      highlights: highlightsOutput,
-      shadows: shadowsOutput,
-      sharpness: sharpnessOutput,
-      edgeGlow: editorEdgeGlowOutput,
-      crtGlow: crtGlowOutput,
-    };
-    setOutput(outputMap[key], layer.params[key]);
+    setOutput(output, layer.params[key]);
     layerEditor.syncControlsFromSelection();
     requestPreviewRefresh();
   });
 });
 
-[
-  brightnessSlider,
-  contrastSlider,
-  highlightsSlider,
-  shadowsSlider,
-  sharpnessSlider,
-  editorEdgeGlowSlider,
-  crtGlowSlider,
-].forEach((slider) => {
+EDITOR_CONTROL_BINDINGS.forEach(({ slider }) => {
   slider.addEventListener("pointerdown", () => {
     markControlTouched(slider);
   });
@@ -2298,6 +1820,10 @@ layerEditor = createLayerEditor({
     highlightsSlider,
     shadowsSlider,
     sharpnessSlider,
+    flickerSlider,
+    glowSlider,
+    blurSlider,
+    slowShutterSlider,
     editorEdgeGlowSlider,
     crtGlowSlider,
     brightnessOutput,
@@ -2305,6 +1831,10 @@ layerEditor = createLayerEditor({
     highlightsOutput,
     shadowsOutput,
     sharpnessOutput,
+    flickerOutput,
+    glowOutput,
+    blurOutput,
+    slowShutterOutput,
     editorEdgeGlowOutput,
     crtGlowOutput,
   },
@@ -2322,6 +1852,11 @@ extendLayerEditorForExtraEffects(layerEditor);
 initializeEditorExtraControls();
 
 window.addEventListener("beforeunload", () => {
+  if (activeRecordStream) {
+    activeRecordStream.getTracks().forEach((track) => track.stop());
+  }
+  activeRecorder = null;
+  activeRecordStream = null;
   volumeController.setAvailable(false);
   stopReversePlayback();
   stopLoop();
@@ -2330,5 +1865,6 @@ window.addEventListener("beforeunload", () => {
 
 layerEditor.renderLayerList();
 layerEditor.syncControlsFromSelection();
-updateSplitButton();
+updateSplitButtons();
+updateExportButton();
 updateQualityMeta();

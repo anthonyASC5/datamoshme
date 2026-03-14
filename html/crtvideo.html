@@ -403,6 +403,12 @@
         letter-spacing: 0.02em;
       }
 
+      .button.active {
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        background: #bcc9de;
+        box-shadow: inset 1px 1px 0 #7f90ac, inset -1px -1px 0 #eef4ff;
+      }
+
       #upload-button {
         background: linear-gradient(180deg, #2c6bed, #0a246a);
         color: #ffffff;
@@ -524,13 +530,14 @@
 
       .slider-grid {
         display: grid;
-        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 10px;
       }
 
       .slider-row {
         display: grid;
-        grid-template-columns: 90px minmax(0, 1fr) 46px;
-        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 8px;
         align-items: center;
       }
 
@@ -538,12 +545,17 @@
         min-width: 0;
       }
 
+      .slider-row input[type="range"] {
+        grid-column: 1 / -1;
+      }
+
       .slider-row label,
       .layer-field label,
       .layer-inline-row label {
         color: var(--ink-soft);
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 700;
+        line-height: 1.2;
       }
 
       .slider-row output,
@@ -552,20 +564,37 @@
         display: inline-flex;
         align-items: center;
         justify-content: flex-end;
-        min-height: 22px;
-        padding: 0 4px;
+      }
+
+      .slider-row output {
+        min-width: 32px;
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        color: var(--ink-soft);
+        font-size: 10px;
+        line-height: 1;
+      }
+
+      .layer-inline-control output,
+      .layer-opacity output {
+        display: inline-flex;
+        min-height: 18px;
+        padding: 0 3px;
         background: var(--window);
         border: 1px solid;
         border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
         box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
         color: var(--ink);
+        font-size: 10px;
       }
 
       input[type="range"] {
         -webkit-appearance: none;
         appearance: none;
         width: 100%;
-        height: 20px;
+        height: 18px;
         margin: 0;
         background: transparent;
       }
@@ -582,8 +611,8 @@
         -webkit-appearance: none;
         appearance: none;
         width: 12px;
-        height: 20px;
-        margin-top: -9px;
+        height: 18px;
+        margin-top: -8px;
         background: var(--window);
         border: 1px solid;
         border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
@@ -600,12 +629,23 @@
 
       input[type="range"]::-moz-range-thumb {
         width: 12px;
-        height: 20px;
+        height: 18px;
         background: var(--window);
         border: 1px solid;
         border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
         box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
         border-radius: 0;
+      }
+
+      .slider-divider {
+        grid-column: 1 / -1;
+        margin-top: 2px;
+        padding-top: 6px;
+        border-top: 1px solid rgba(0, 0, 0, 0.28);
+        color: var(--ink-soft, #2f2f2f);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
       }
 
       input[type="range"].touched::-webkit-slider-thumb,
@@ -845,6 +885,7 @@
 
         .stage-copy,
         .settings-grid,
+        .slider-grid,
         .preset-grid,
         .layer-grid {
           grid-template-columns: 1fr;
@@ -936,6 +977,30 @@
                     </div>
 
                     <div class="slider-row">
+                      <label for="flicker-slider">Flicker</label>
+                      <input id="flicker-slider" type="range" min="0" max="1" step="0.01" value="0.00" />
+                      <output id="flicker-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="glow-slider">Glow</label>
+                      <input id="glow-slider" type="range" min="0" max="1.5" step="0.01" value="0.00" />
+                      <output id="glow-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="blur-slider">Blur</label>
+                      <input id="blur-slider" type="range" min="0" max="1.5" step="0.01" value="0.00" />
+                      <output id="blur-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
+                      <label for="slow-shutter-slider">Slow Shutter</label>
+                      <input id="slow-shutter-slider" type="range" min="0" max="1" step="0.01" value="0.00" />
+                      <output id="slow-shutter-output">0.00</output>
+                    </div>
+
+                    <div class="slider-row">
                       <label for="editor-edge-glow-slider">Edge Glow</label>
                       <input id="editor-edge-glow-slider" type="range" min="0" max="1.5" step="0.01" value="0.00" />
                       <output id="editor-edge-glow-output">0.00</output>
@@ -985,7 +1050,8 @@
 
                   <div class="transport-bank transport-bank-secondary">
                     <button class="button" id="play-button" type="button">Play / Pause</button>
-                    <button class="button" id="split-button" type="button">Split Screen</button>
+                    <button class="button" id="split-button" type="button">Split Side</button>
+                    <button class="button" id="split-stack-button" type="button">Split Stack</button>
                     <button class="button" id="export-button" type="button">Record and Render</button>
                   </div>
                 </div>
@@ -1000,7 +1066,7 @@
 
                   <div class="transport-readout">
                     <span class="transport-readout-label">Display</span>
-                    <span class="transport-readout-value">Composite Monitor</span>
+                    <span class="transport-readout-value" id="display-mode-value">Composite Monitor</span>
                   </div>
                 </div>
               </div>

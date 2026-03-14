@@ -88,7 +88,7 @@ function defaultLayerParams(type) {
       reduceBlack: 0.52,
       clusterSize: 0.08,
       clusterShape: 0.08,
-      clusterQuantity: 1,
+      clusterQuantity: 0.88,
       showCoordinates: true,
       showLines: true,
       clusterMode: "square",
@@ -102,6 +102,10 @@ function defaultLayerParams(type) {
       highlights: 0,
       shadows: 0,
       sharpness: 0,
+      flicker: 0,
+      glow: 0,
+      blur: 0,
+      slowShutter: 0,
       edgeGlow: 0,
       crtGlow: 0,
     };
@@ -442,6 +446,10 @@ export function createLayerEditor({
       dom.highlightsSlider.value = String(editorLayer.params.highlights);
       dom.shadowsSlider.value = String(editorLayer.params.shadows);
       dom.sharpnessSlider.value = String(editorLayer.params.sharpness);
+      dom.flickerSlider.value = String(editorLayer.params.flicker);
+      dom.glowSlider.value = String(editorLayer.params.glow);
+      dom.blurSlider.value = String(editorLayer.params.blur);
+      dom.slowShutterSlider.value = String(editorLayer.params.slowShutter);
       dom.editorEdgeGlowSlider.value = String(editorLayer.params.edgeGlow);
       dom.crtGlowSlider.value = String(editorLayer.params.crtGlow);
       setOutput(dom.brightnessOutput, editorLayer.params.brightness);
@@ -449,6 +457,10 @@ export function createLayerEditor({
       setOutput(dom.highlightsOutput, editorLayer.params.highlights);
       setOutput(dom.shadowsOutput, editorLayer.params.shadows);
       setOutput(dom.sharpnessOutput, editorLayer.params.sharpness);
+      setOutput(dom.flickerOutput, editorLayer.params.flicker);
+      setOutput(dom.glowOutput, editorLayer.params.glow);
+      setOutput(dom.blurOutput, editorLayer.params.blur);
+      setOutput(dom.slowShutterOutput, editorLayer.params.slowShutter);
       setOutput(dom.editorEdgeGlowOutput, editorLayer.params.edgeGlow);
       setOutput(dom.crtGlowOutput, editorLayer.params.crtGlow);
     }
@@ -596,6 +608,10 @@ export function createLayerEditor({
       layer.runtime.ghostCanvas.height = height;
       layer.runtime.auxCanvas.width = width;
       layer.runtime.auxCanvas.height = height;
+      if (layer.runtime.bufferCanvas) {
+        layer.runtime.bufferCanvas.width = width;
+        layer.runtime.bufferCanvas.height = height;
+      }
       layer.runtime.presetGhostData = null;
     });
   }
