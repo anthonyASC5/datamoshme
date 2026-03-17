@@ -2,6 +2,7 @@
   const TAB_CONFIG = [
     { href: "./datamosh.html", label: "Data Mosh", pixel: true, aliases: ["./index.html", "./"] },
     { href: "./crtvideo.html", label: "CRT Video", pixel: false },
+    { href: "./motionvideo.html", label: "Motion Video", pixel: false },
     { href: "./data1.html", label: "Data1", pixel: true },
     { href: "./datamosh-v1.html", label: "V1", pixel: true },
     { href: "./datamosh-v2.html", label: "V2", pixel: true },
@@ -66,12 +67,17 @@
   function canonicalPath(pathname) {
     const shortPath = pathname.split("/").pop() || "index.html";
     const localPath = shortPath ? `./${shortPath}` : "./";
+    const searchParams = new URLSearchParams(window.location.search);
+    if (localPath === "./crtvideo.html" && searchParams.get("workspace") === "motion") {
+      return "./motionvideo.html";
+    }
     const match = TAB_CONFIG.find((tab) => tab.href === localPath || tab.aliases?.includes(localPath));
     return match?.href || localPath;
   }
 
   function rebuildNav(nav) {
     const activeHref = canonicalPath(window.location.pathname);
+    const linkTarget = window.self !== window.top ? ' target="_top"' : "";
     nav.innerHTML = TAB_CONFIG.map((tab) => {
       const classes = ["mode-tab"];
       if (tab.pixel) {
@@ -80,7 +86,7 @@
       if (tab.href === activeHref) {
         classes.push("active");
       }
-      return `<a class="${classes.join(" ")}" href="${tab.href}">${tab.label}</a>`;
+      return `<a class="${classes.join(" ")}" href="${tab.href}"${linkTarget}>${tab.label}</a>`;
     }).join("");
   }
 
@@ -92,6 +98,9 @@
     const logo = document.createElement("a");
     logo.className = "site-home-logo";
     logo.href = "./datamosh.html";
+    if (window.self !== window.top) {
+      logo.target = "_top";
+    }
     logo.setAttribute("aria-label", "Datamosh home");
     logo.innerHTML = "<span>DATAMOSH</span>";
     if (canonicalPath(window.location.pathname) === "./datamosh.html") {

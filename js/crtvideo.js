@@ -2,6 +2,12 @@ import { createLayerEditor } from "./crtvideo-layer-editor.js";
 import { createVideoVolumeController } from "./video-volume.js";
 import { layerNeedsSourceImageData, renderEffectLayer } from "./effects.js";
 
+const WORKSPACE_FILE = window.location.pathname.split("/").pop() || "";
+const WORKSPACE_MODE = new URLSearchParams(window.location.search).get("workspace");
+const IS_MOTION_VIDEO_WORKSPACE = WORKSPACE_FILE === "motionvideo.html" || WORKSPACE_MODE === "motion";
+const WORKSPACE_LABEL = IS_MOTION_VIDEO_WORKSPACE ? "MOTION VIDEO" : "CRT WRLD VIDEO";
+const RECORDING_FILENAME = IS_MOTION_VIDEO_WORKSPACE ? "motionvideo-recording.webm" : "crtvideo-recording.webm";
+
 // these presets scale the working buffers before effects are composited.
 const MAX_EXPORT_WIDTH = 1280;
 const MIN_RENDER_WIDTH = 64;
@@ -158,6 +164,7 @@ const EDITOR_CONTROL_BINDINGS = [
 
 const editorPanel = document.getElementById("editor-panel");
 const editorControls = document.getElementById("editor-controls");
+const shellTitle = document.querySelector(".titlebar h1");
 document.querySelectorAll('[data-add-layer="datamosh"], [data-add-layer="motionTracker"]').forEach((button) => {
   button.remove();
 });
@@ -193,6 +200,12 @@ const volumeController = createVideoVolumeController({
   output: volumeOutput,
   toggleButton: volumeButton,
 });
+
+document.title = WORKSPACE_LABEL;
+shellTitle?.textContent = WORKSPACE_LABEL;
+if (IS_MOTION_VIDEO_WORKSPACE && statusText) {
+  statusText.textContent = "Ready. Upload a video for layered motion playback and export.";
+}
 
 function setStatus(message) {
   statusText.textContent = message;
@@ -1677,11 +1690,11 @@ async function exportLoop() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "crtvideo-recording.webm";
+    anchor.download = RECORDING_FILENAME;
     anchor.click();
     URL.revokeObjectURL(url);
     cleanupRecordingState();
-    setStatus("Export complete. Downloaded `crtvideo-recording.webm`.");
+    setStatus(`Export complete. Downloaded \`${RECORDING_FILENAME}\`.`);
   };
 
   if (sourceVideo.paused && !reversePlaybackHandle) {

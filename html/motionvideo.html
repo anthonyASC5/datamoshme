@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MOTION VIDEO</title>
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <style>
+      :root {
+        --desktop: #47206a;
+        --desktop-accent: #723ab1;
+        --window: #c7b4ea;
+        --window-soft: #d8c9f3;
+        --light: #faf5ff;
+        --light-soft: #eee3ff;
+        --shadow: #7f68a5;
+        --shadow-deep: #3a2756;
+        --ink: #1f1131;
+        --ink-soft: #4c336a;
+        --title-start: #42176a;
+        --title-end: #d0afff;
+        --player-bg: #140b20;
+        --player-ink: #f4eeff;
+        --accent: #9d73ff;
+        --accent-strong: #f1c4ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--ink);
+        font-family: "Tahoma", "MS Sans Serif", "Segoe UI", sans-serif;
+        font-size: 12px;
+        background:
+          radial-gradient(circle at top, rgba(255, 255, 255, 0.1), transparent 38%),
+          linear-gradient(135deg, var(--desktop-accent), var(--desktop));
+      }
+
+      body {
+        position: relative;
+      }
+
+      body .site-home-logo {
+        display: none !important;
+      }
+
+      .page {
+        min-height: 100vh;
+        padding: 28px 18px;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+        background-size: 4px 4px;
+      }
+
+      .shell {
+        max-width: 1540px;
+        margin: 0 auto;
+        background: var(--window);
+        border: 2px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        box-shadow:
+          inset 1px 1px 0 var(--light-soft),
+          inset -1px -1px 0 var(--shadow),
+          4px 4px 0 rgba(0, 0, 0, 0.25);
+      }
+
+      .titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 5px 6px;
+        background: linear-gradient(90deg, var(--title-start), var(--title-end));
+        color: #ffffff;
+      }
+
+      .titlebar-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .app-icon {
+        width: 18px;
+        height: 18px;
+        position: relative;
+        flex: 0 0 auto;
+        border: 1px solid #20073d;
+        background:
+          linear-gradient(90deg, #26103f 0 48%, transparent 48%),
+          linear-gradient(180deg, #26103f 0 48%, transparent 48%),
+          linear-gradient(135deg, #ffb0ff, #7e58ff);
+        box-shadow:
+          inset 1px 1px 0 rgba(255, 255, 255, 0.55),
+          inset -1px -1px 0 rgba(0, 0, 0, 0.35);
+      }
+
+      .titlebar h1 {
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+
+      .window-controls {
+        display: flex;
+        gap: 2px;
+        flex: 0 0 auto;
+      }
+
+      .menu-shell {
+        padding: 0 6px 6px;
+      }
+
+      .menu-bar,
+      .mode-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 5px;
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+      }
+
+      .mode-toolbar {
+        margin-top: 4px;
+        align-items: flex-start;
+      }
+
+      .menu-item,
+      .toolbar-label {
+        color: var(--ink);
+        white-space: nowrap;
+      }
+
+      .menu-item {
+        padding: 2px 8px;
+      }
+
+      .menu-item.is-active {
+        border: 1px solid;
+        border-color: var(--shadow) var(--light) var(--light) var(--shadow);
+        background: var(--window);
+        box-shadow: inset 1px 1px 0 var(--shadow-deep), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .toolbar-label {
+        min-width: 64px;
+        padding: 3px 2px 0;
+        font-weight: 700;
+      }
+
+      .mode-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      button,
+      input,
+      select,
+      output {
+        font: inherit;
+      }
+
+      .button,
+      .icon-button,
+      .mini-button,
+      .window-button,
+      .mode-tab,
+      select {
+        border: 1px solid;
+        border-color: var(--light) var(--shadow-deep) var(--shadow-deep) var(--light);
+        background: var(--window);
+        color: var(--ink);
+        border-radius: 0;
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--shadow);
+      }
+
+      .button,
+      .icon-button,
+      .mini-button,
+      .window-button,
+      .mode-tab {
+        cursor: pointer;
+      }
+
+      .button:active,
+      .button.active,
+      .icon-button:active,
+      .mini-button:active,
+      .mini-button.active,
+      .mode-tab.active {
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        box-shadow: inset 1px 1px 0 var(--shadow), inset -1px -1px 0 var(--light-soft);
+      }
+
+      .button:focus-visible,
+      .icon-button:focus-visible,
+      .mini-button:focus-visible,
+      .window-button:focus-visible,
+      .mode-tab:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 1px dotted var(--ink);
+        outline-offset: -4px;
+      }
+
+      .window-button {
+        width: 22px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+      }
+
+      .button,
+      .mode-tab,
+      select {
+        min-height: 28px;
+        padding: 5px 10px;
+      }
+
+      .icon-button {
+        width: 32px;
+        min-width: 32px;
+        height: 28px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      .mini-button {
+        min-height: 22px;
+        padding: 2px 8px;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 332px);
+        gap: 12px;
+        padding: 12px;
+      }
+
+      .sidebar-panel,
+      .control-panel {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+
+      .stage-panel {
+        display: grid;
+        gap: 12px;
+      }
+
+      .panel-group {
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2));
+        border-bottom: 1px solid rgba(58, 39, 86, 0.25);
+      }
+
+      .panel-head[data-collapsible] {
+        cursor: pointer;
+      }
+
+      .panel-head-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .panel-head h2 {
+        margin: 0;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+
+      .panel-head span {
+        color: var(--ink-soft);
+      }
+
+      .hud-toggle {
+        width: 22px;
+        height: 22px;
+        padding: 0;
+      }
+
+      .panel-body {
+        padding: 10px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .collapsed .panel-body {
+        display: none;
+      }
+
+      .player-window {
+        background: var(--window-soft);
+        border: 1px solid;
+        border-color: var(--light) var(--shadow) var(--shadow) var(--light);
+        box-shadow: inset 1px 1px 0 var(--light-soft), inset -1px -1px 0 var(--window);
+        padding: 12px;
+      }
+
+      .player-viewport {
+        background:
+          radial-gradient(circle at top, rgba(157, 115, 255, 0.18), transparent 45%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
+          var(--player-bg);
+        border: 2px solid;
+        border-color: var(--shadow-deep) var(--light) var(--light) var(--shadow-deep);
+        padding: 14px;
+      }
+
+      #player-shell {
+        position: relative;
+        border: 2px solid rgba(241, 196, 255, 0.22);
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          #07050d;
+        background-size: 4px 4px;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 16 / 9;
+      }
+
+      .transport-strip {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .transport-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .transport-bank {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .transport-bank-secondary .button {
+        min-width: 112px;
+      }
+
+      .volume-rack {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        gap: 8px;
+        align-items: center;
+        min-width: min(100%, 420px);
+      }
+
+      .transport-readout {
+        display: grid;
+        justify-items: end;
+        gap: 2px;
+      }
+
+      .transport-readout-label,
+      .meta,
+      .copy-box span,
+      .layer-type,
+      .layer-empty,
+      .panel-head span {
+        color: var(--ink-soft);
+      }
+
+      .transport-readout-value {
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .player-readout {
+        display: grid;
+        gap: 4px;
+        margin-top: 12px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.24);
+        border: 1px solid rgba(58, 39, 86, 0.22);
+      }
+
+      .status {
+        color: #3d1d5f;
+        font-weight: 700;
+      }
+
+      .stage-copy,
+      .settings-grid,
+      .preset-grid,
+      .layer-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .settings-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .preset-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        max-height: 42vh;
+        overflow: auto;
+      }
+
+      .effect-rack-divider {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: rgba(61, 29, 95, 0.82);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .effect-rack-divider::before,
+      .effect-rack-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(61, 29, 95, 0.15), rgba(61, 29, 95, 0.55), rgba(61, 29, 95, 0.15));
+      }
+
+      .copy-box {
+        display: grid;
+        gap: 4px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.22);
+        border: 1px solid rgba(58, 39, 86, 0.22);
+      }
+
+      .copy-box strong {
+        letter-spacing: 0.04em;
+      }
+
+      .layer-list {
+        max-height: 60vh;
+        overflow: auto;
+      }
+
+      .layer-row-card {
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.26);
+        border: 1px solid rgba(58, 39, 86, 0.24);
+        border-left: 4px solid var(--layer-accent, rgba(58, 39, 86, 0.24));
+        display: grid;
+        gap: 10px;
+      }
+
+      .layer-row-card.selected {
+        border-color: rgba(241, 196, 255, 0.7);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+      }
+
+      .layer-row-card[data-layer-type="clusterTrack"] .layer-name,
+      .layer-row-card[data-layer-type="clusterTrack"] .layer-type {
+        color: #5c257e;
+      }
+
+      .layer-topline {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .layer-name {
+        font-weight: 700;
+        color: var(--layer-accent, var(--ink));
+      }
+
+      .layer-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        justify-content: flex-end;
+      }
+
+      .layer-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .layer-field,
+      .layer-inline-row {
+        display: grid;
+        gap: 6px;
+      }
+
+      .layer-field label,
+      .layer-inline-row label,
+      .volume-rack label {
+        font-weight: 700;
+      }
+
+      .layer-opacity,
+      .layer-inline-control {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .layer-inline-panel {
+        display: grid;
+        gap: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(58, 39, 86, 0.18);
+      }
+
+      .layer-inline-toggle {
+        justify-content: start;
+        grid-template-columns: auto auto;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+
+      .layer-empty {
+        padding: 10px;
+        border: 1px dashed rgba(58, 39, 86, 0.3);
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      .preset-button {
+        text-align: left;
+        border-left: 4px solid var(--layer-accent, var(--accent));
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.1)),
+          var(--window);
+      }
+
+      #video-input,
+      #video-source {
+        display: none;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 1240px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .layer-list {
+          max-height: none;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page {
+          padding: 14px 10px;
+        }
+
+        .titlebar,
+        .menu-bar,
+        .mode-toolbar {
+          flex-wrap: wrap;
+        }
+
+        .settings-grid,
+        .preset-grid,
+        .layer-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .volume-rack {
+          grid-template-columns: 1fr;
+        }
+
+        .transport-readout {
+          width: 100%;
+          justify-items: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="shell">
+        <header class="titlebar">
+          <div class="titlebar-main">
+            <div class="app-icon" aria-hidden="true"></div>
+            <h1>MOTION VIDEO</h1>
+          </div>
+          <div class="window-controls" aria-hidden="true">
+            <button class="window-button" type="button" tabindex="-1">_</button>
+            <button class="window-button" type="button" tabindex="-1">□</button>
+            <button class="window-button" type="button" tabindex="-1">×</button>
+          </div>
+        </header>
+
+        <div class="menu-shell">
+          <div class="menu-bar" aria-label="Application Menu">
+            <span class="menu-item is-active">File</span>
+          </div>
+
+          <div class="mode-toolbar">
+            <span class="toolbar-label">Programs</span>
+            <nav class="mode-tabs" aria-label="Modes"></nav>
+          </div>
+        </div>
+
+        <main class="layout">
+          <aside class="sidebar-panel">
+            <section class="panel-group" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Layers HUD">▾</button>
+                  <h2>Layers</h2>
+                </div>
+                <span>Composite Stack</span>
+              </div>
+              <div class="panel-body">
+                <div class="layer-list" id="layers-list"></div>
+                <div class="layer-empty" id="layers-empty">Upload a video to create the base layer, then add Motion Video effect layers above it.</div>
+              </div>
+            </section>
+
+            <section class="panel-group" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Layer Notes">▾</button>
+                  <h2>Layer Notes</h2>
+                </div>
+                <span id="layer-selection-label">Effects</span>
+              </div>
+              <div class="panel-body">
+                <div class="copy-box">
+                  <strong>Selected Layer</strong>
+                  <span>Base video stays on the bottom. Motion effect layers stack above it and can be reordered, blended, duplicated, and tuned inline.</span>
+                </div>
+              </div>
+            </section>
+          </aside>
+
+          <section class="stage-panel">
+            <div class="player-window">
+              <div class="player-viewport">
+                <div id="player-shell">
+                  <canvas id="video-canvas" width="1280" height="720"></canvas>
+                </div>
+              </div>
+
+              <div class="transport-strip">
+                <div class="transport-row">
+                  <div class="transport-bank" aria-label="Transport">
+                    <button class="icon-button" id="header-play-button" type="button" aria-label="Play">▶</button>
+                    <button class="icon-button" id="header-stop-button" type="button" aria-label="Stop">■</button>
+                    <button class="icon-button" id="header-reverse-button" type="button" aria-label="Reverse">◀</button>
+                    <button class="icon-button" id="header-reset-button" type="button" aria-label="Reset Effects">↺</button>
+                  </div>
+
+                  <div class="transport-bank transport-bank-secondary">
+                    <button class="button" id="play-button" type="button">Play / Pause</button>
+                    <button class="button" id="split-button" type="button">Split Side</button>
+                    <button class="button" id="split-stack-button" type="button">Split Stack</button>
+                    <button class="button" id="export-button" type="button">Record and Render</button>
+                  </div>
+                </div>
+
+                <div class="transport-row">
+                  <div class="volume-rack">
+                    <label for="volume-slider">Volume</label>
+                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="100" />
+                    <output id="volume-output">N/A</output>
+                    <button class="mini-button" id="volume-button" type="button" disabled>No Audio</button>
+                  </div>
+
+                  <div class="transport-readout">
+                    <span class="transport-readout-label">Display</span>
+                    <span class="transport-readout-value" id="display-mode-value">Composite Monitor</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="player-readout">
+                <div class="meta" id="file-name">No file loaded.</div>
+                <div class="meta" id="quality-meta">Balanced quality renders at 72% resolution and caps preview at 30 FPS.</div>
+                <div class="status" id="status-text">Ready. Upload a video for motion playback and export.</div>
+              </div>
+
+              <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
+              <video id="video-source" playsinline loop crossorigin="anonymous"></video>
+            </div>
+
+            <div class="stage-copy">
+              <div class="copy-box">
+                <strong>Playback Surface</strong>
+                <span>Purple Windows 98 shell, live composite in the center, and the full transport deck docked directly under the monitor.</span>
+              </div>
+              <div class="copy-box">
+                <strong>Motion Rack</strong>
+                <span>The rack is driven by <code>motionvideofx.js</code> and now focuses on cluster tracking, blob and box layers, black-background skin masking, green-screen masking, color centroids, a NEW EFFECTS TESTING bank for smear, feedback, edge, grain, Voronoi, and punchy black-and-white print passes, plus a separate particle-tracker bank for the feature-flow layers.</span>
+              </div>
+            </div>
+          </section>
+
+          <aside class="control-panel">
+            <section class="panel-group" data-panel-group>
+              <div class="panel-head">
+                <div class="panel-head-main">
+                  <h2>Upload Video</h2>
+                </div>
+                <span>Source Clip</span>
+              </div>
+              <div class="panel-body">
+                <button class="button" id="upload-button" type="button">Upload Video</button>
+              </div>
+            </section>
+
+            <section class="panel-group" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Render Setup">▾</button>
+                  <h2>Render Setup</h2>
+                </div>
+                <span>Video Device</span>
+              </div>
+              <div class="panel-body">
+                <div class="settings-grid">
+                  <div class="layer-field">
+                    <label for="quality-select">Render Quality</label>
+                    <select id="quality-select">
+                      <option value="micro">Micro 10%</option>
+                      <option value="low">Low 30%</option>
+                      <option value="performance">Performance 55%</option>
+                      <option value="balanced" selected>Balanced 72%</option>
+                      <option value="quality">Quality 100%</option>
+                    </select>
+                  </div>
+
+                  <div class="layer-field">
+                    <label for="fps-select">FPS Cap</label>
+                    <select id="fps-select">
+                      <option value="10">10 FPS</option>
+                      <option value="20">20 FPS</option>
+                      <option value="24">24 FPS</option>
+                      <option value="30" selected>30 FPS</option>
+                      <option value="60">60 FPS</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="copy-box">
+                  <strong>Render Deck</strong>
+                  <span>Upload the source clip, tune preview resolution and frame-rate caps, then play, split, or record the current composite to WebM.</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel-group" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Motion FX Rack">▾</button>
+                  <h2>Effects</h2>
+                </div>
+                <span>Motion Rack</span>
+              </div>
+              <div class="panel-body">
+                <div class="copy-box">
+                  <strong>Add Layer</strong>
+                  <span>Motion Video is isolated from CRT Video. Add motion-analysis layers here and stack them like any other composite pass.</span>
+                </div>
+                <div class="preset-grid" id="effects-rack"></div>
+              </div>
+            </section>
+
+            <section class="panel-group collapsed" data-panel-group>
+              <div class="panel-head" data-collapsible>
+                <div class="panel-head-main">
+                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Effect Sliders">▸</button>
+                  <h2>Effect Sliders</h2>
+                </div>
+                <span id="effect-sliders-label">No effect selected</span>
+              </div>
+              <div class="panel-body">
+                <div class="copy-box">
+                  <strong>Selected Effect</strong>
+                  <span>Pick a Motion Video layer in the stack to tune its live sliders here without opening the layer card.</span>
+                </div>
+                <div id="effect-sliders-panel"></div>
+                <div class="layer-empty" id="effect-sliders-empty">Select an effect layer to load its sliders.</div>
+              </div>
+            </section>
+          </aside>
+        </main>
+      </div>
+    </div>
+    <script src="../js/mode-nav.js"></script>
+    <script type="module" src="../js/motionvideo.js"></script>
+  </body>
+</html>
