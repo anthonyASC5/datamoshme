@@ -1,3 +1,202 @@
+const VFX_MODULE_URL = "https://esm.sh/@vfx-js/core@0.8.0";
+
+let vfxModulePromise = null;
+
+function loadVfxModule() {
+  if (!vfxModulePromise) {
+    vfxModulePromise = import(VFX_MODULE_URL);
+  }
+  return vfxModulePromise;
+}
+
+function hideVfxNode(node) {
+  if (!node) {
+    return;
+  }
+  node.setAttribute("aria-hidden", "true");
+  node.style.opacity = "0";
+  node.style.pointerEvents = "none";
+  node.style.zIndex = "-1";
+}
+
+function getVfxDisplayCanvasSize(fallbackWidth, fallbackHeight) {
+  const displayCanvas = document.getElementById("video-canvas");
+  const width = Math.max(1, Math.round(displayCanvas?.clientWidth || fallbackWidth || 1));
+  const height = Math.max(1, Math.round(displayCanvas?.clientHeight || fallbackHeight || 1));
+  return { width, height };
+}
+
+function resizeVfxSourceCanvas(surface, width, height) {
+  if (surface.sourceCanvas.width !== width || surface.sourceCanvas.height !== height) {
+    surface.sourceCanvas.width = width;
+    surface.sourceCanvas.height = height;
+  }
+  surface.sourceCanvas.style.width = `${width}px`;
+  surface.sourceCanvas.style.height = `${height}px`;
+}
+
+function cleanupVfxSurface(surface) {
+  if (!surface || surface.disposed) {
+    return;
+  }
+  surface.disposed = true;
+  try {
+    surface.vfx?.destroy?.();
+  } catch (error) {
+    console.error("Failed to destroy VFX surface.", error);
+  }
+  surface.host?.remove();
+  if (surface.outputCanvas?.isConnected) {
+    surface.outputCanvas.remove();
+  }
+}
+
+async function initializeVfxSurface(surface, requestPreviewRefresh) {
+  const existingCanvases = new Set(Array.from(document.body.querySelectorAll("body > canvas")));
+  const { VFX } = await loadVfxModule();
+  if (surface.disposed) {
+    return;
+  }
+
+  const vfx = new VFX({
+    autoplay: false,
+    scrollPadding: false,
+    pixelRatio: 1,
+    zIndex: -1,
+  });
+  const outputCanvas = Array.from(document.body.querySelectorAll("body > canvas"))
+    .find((node) => !existingCanvases.has(node));
+
+  if (!outputCanvas) {
+    throw new Error("VFX.js did not expose a render canvas.");
+  }
+
+  hideVfxNode(outputCanvas);
+  outputCanvas.dataset.motionvideoVfxCanvas = surface.key;
+
+  await vfx.add(surface.sourceCanvas, {
+    shader: surface.shader,
+    overflow: 0,
+    overlay: false,
+    uniforms: surface.uniformGenerators,
+  });
+
+  surface.vfx = vfx;
+  surface.outputCanvas = outputCanvas;
+  surface.ready = true;
+  requestPreviewRefresh?.();
+}
+
+function createVfxSurface(layer, shader, uniformGenerators, requestPreviewRefresh) {
+  const host = document.createElement("div");
+  host.setAttribute("aria-hidden", "true");
+  host.style.position = "fixed";
+  host.style.left = "0";
+  host.style.top = "0";
+  host.style.width = "0";
+  host.style.height = "0";
+  host.style.overflow = "hidden";
+  host.style.opacity = "0";
+  host.style.pointerEvents = "none";
+  host.style.zIndex = "-1";
+
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = 1;
+  sourceCanvas.height = 1;
+  sourceCanvas.style.position = "fixed";
+  sourceCanvas.style.left = "0";
+  sourceCanvas.style.top = "0";
+  sourceCanvas.style.width = "1px";
+  sourceCanvas.style.height = "1px";
+  sourceCanvas.style.opacity = "0";
+  sourceCanvas.style.pointerEvents = "none";
+  host.appendChild(sourceCanvas);
+  document.body.appendChild(host);
+
+  const surface = {
+    key: `${layer.id}-${shader}`,
+    layerId: layer.id,
+    shader,
+    host,
+    sourceCanvas,
+    sourceCtx: sourceCanvas.getContext("2d", { alpha: true }),
+    outputCanvas: null,
+    vfx: null,
+    ready: false,
+    disposed: false,
+    initPromise: null,
+    uniformState: {},
+    uniformGenerators,
+  };
+
+  surface.initPromise = initializeVfxSurface(surface, requestPreviewRefresh).catch((error) => {
+    surface.error = error;
+    console.error(`Failed to initialize VFX.js shader "${shader}".`, error);
+    requestPreviewRefresh?.();
+  });
+
+  layer.runtime.vfxSurface = surface;
+  layer.runtime.dispose = () => cleanupVfxSurface(surface);
+  return surface;
+}
+
+function ensureVfxSurface(layer, shader, uniformGenerators, requestPreviewRefresh) {
+  const existing = layer.runtime.vfxSurface;
+  if (existing && existing.shader === shader && !existing.disposed) {
+    return existing;
+  }
+
+  cleanupVfxSurface(existing);
+  return createVfxSurface(layer, shader, uniformGenerators, requestPreviewRefresh);
+}
+
+function renderVfxCanvasShaderLayer({
+  layer,
+  sourceImageData,
+  shader,
+  uniforms = {},
+  requestPreviewRefresh,
+}) {
+  if (!layer?.runtime || !sourceImageData) {
+    return false;
+  }
+
+  const surface = ensureVfxSurface(layer, shader, uniforms, requestPreviewRefresh);
+  surface.uniformState = uniforms;
+
+  const { width: displayWidth, height: displayHeight } = getVfxDisplayCanvasSize(
+    sourceImageData.width,
+    sourceImageData.height,
+  );
+  resizeVfxSourceCanvas(surface, displayWidth, displayHeight);
+
+  layer.runtime.bufferCtx.putImageData(sourceImageData, 0, 0);
+  surface.sourceCtx.clearRect(0, 0, displayWidth, displayHeight);
+  surface.sourceCtx.drawImage(layer.runtime.bufferCanvas, 0, 0, displayWidth, displayHeight);
+
+  const targetCtx = layer.runtime.ctx;
+  targetCtx.clearRect(0, 0, sourceImageData.width, sourceImageData.height);
+
+  if (!surface.ready || !surface.outputCanvas || !surface.vfx) {
+    return false;
+  }
+
+  surface.vfx.update(surface.sourceCanvas);
+  surface.vfx.render();
+  targetCtx.drawImage(
+    surface.outputCanvas,
+    0,
+    0,
+    displayWidth,
+    displayHeight,
+    0,
+    0,
+    sourceImageData.width,
+    sourceImageData.height,
+  );
+  return true;
+}
+
 // Core math and color helpers are shared by every effect pass in this file. They keep the later
 // renderers focused on look-dev logic instead of repeating low-level clamp, mix, and conversion code.
 function clamp(value, min, max) {
@@ -6,6 +205,14 @@ function clamp(value, min, max) {
 
 function lerp(a, b, t) {
   return a + (b - a) * clamp(t, 0, 1);
+}
+
+function smoothstep(edge0, edge1, value) {
+  if (edge0 === edge1) {
+    return value < edge0 ? 0 : 1;
+  }
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function wrapUnit(value) {
@@ -137,13 +344,27 @@ function createToggle(key, label) {
 
 const EFFECT_COLORS = Object.freeze({
   clusterTrack: "#7ff4d8",
-  temporalAverage: "#4bc8ff",
   motionThreshold: "#ff5a8e",
   datamoshSmear: "#ff7a64",
-  feedbackTrails: "#ffc86d",
+  greenCrt: "#66ff8d",
+  blueCrt: "#5ca8ff",
+  redCrt: "#c91f2c",
+  nightVision: "#97ff58",
+  vfxHalftone: "#ffd85b",
+  vfxDuotone: "#ff86c3",
+  prismExtrude: "#ff8fff",
+  chromeRelief: "#dceaff",
+  paperStack: "#ffbf7d",
+  diamondPulse: "#ff86f6",
+  orbitRings: "#70f5ff",
+  warpMesh: "#ffd66c",
+  totemEcho: "#8d9cff",
+  scribbleAura: "#ff9b7e",
+  highlightsOnly: "#f7f7ff",
+  midtonesOnly: "#4fa8ff",
+  shadowsOnly: "#3c538c",
   edgeGlow: "#61c8ff",
   filmGrain: "#d8d0be",
-  voronoiShading: "#b38cff",
   punchBlackWhite: "#f2f2f2",
   sparseOpticalFlow: "#49ffd3",
   harrisCorners: "#ff72d4",
@@ -159,8 +380,8 @@ const EFFECT_COLORS = Object.freeze({
 const DEFAULT_BLEND = "screen";
 const DEFAULT_TRAIL = 0.28;
 
-// Rack definitions power both the "Add Layer" buttons and the selected-effect slider panel.
-// Each entry declares the layer type, its default params, and the inline controls exposed in the UI.
+// Rack definitions power the "Add Layer" buttons and the inline controls exposed inside each layer.
+// Each entry declares the layer type, its default params, and the controls available in the stack.
 const EFFECT_DEFINITIONS = [
   {
     type: "clusterTrack",
@@ -168,25 +389,16 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Cluster Track",
     accent: EFFECT_COLORS.clusterTrack,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { threshold: 0.22, detail: 0.58, trail: 0.36, showLabels: true },
+    defaultParams: { threshold: 0.18, detail: 0.68, trail: 0.48, size: 0.92, hue: 0.46, showTrails: true, showConnections: true, showLabels: true },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("detail", "Detail", 0, 1, 0.01),
       createSlider("trail", "Trail", 0, 1, 0.01),
+      createSlider("size", "Size", 0.2, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+      createToggle("showTrails", "Trails"),
+      createToggle("showConnections", "Connections"),
       createToggle("showLabels", "Labels"),
-    ],
-  },
-  {
-    type: "temporalAverage",
-    label: "Temporal Avg BG",
-    buttonLabel: "Temporal Avg BG",
-    accent: EFFECT_COLORS.temporalAverage,
-    defaultBlend: DEFAULT_BLEND,
-    defaultParams: { threshold: 0.16, bufferFrames: 18, trail: 0.32 },
-    controls: [
-      createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
-      createSlider("bufferFrames", "Buffer", 6, 36, 1, 0),
-      createSlider("trail", "Trail", 0, 1, 0.01),
     ],
   },
   {
@@ -195,7 +407,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Motion Threshold",
     accent: EFFECT_COLORS.motionThreshold,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { threshold: 0.18, detail: 0.52, trail: 0.2 },
+    defaultParams: { threshold: 0.15, detail: 0.64, trail: 0.34 },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("detail", "Detail", 0, 1, 0.01),
@@ -208,11 +420,12 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Blob Tracker",
     accent: EFFECT_COLORS.multiBlob,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { threshold: 0.16, detail: 0.54, trail: 0.4 },
+    defaultParams: { threshold: 0.14, detail: 0.7, trail: 0.48, showTrails: true },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("detail", "Detail", 0, 1, 0.01),
       createSlider("trail", "Trail", 0, 1, 0.01),
+      createToggle("showTrails", "Trails"),
     ],
   },
   {
@@ -221,11 +434,12 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Bounding Boxes",
     accent: EFFECT_COLORS.boundingBoxes,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { threshold: 0.16, detail: 0.56, trail: 0.18 },
+    defaultParams: { threshold: 0.14, detail: 0.7, trail: 0.28, showTrails: true },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("detail", "Detail", 0, 1, 0.01),
       createSlider("trail", "Trail", 0, 1, 0.01),
+      createToggle("showTrails", "Trails"),
     ],
   },
   {
@@ -243,7 +457,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Green Screen",
     accent: EFFECT_COLORS.greenScreenMotion,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { threshold: 0.14, hueWidth: 0.1, trail: 0.2 },
+    defaultParams: { threshold: 0.12, hueWidth: 0.12, trail: 0.32 },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("hueWidth", "Green Width", 0.04, 0.22, 0.01),
@@ -256,7 +470,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Color Centroid",
     accent: EFFECT_COLORS.colorCentroid,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { hue: 0.0, hueWidth: 0.08, trail: 0.5 },
+    defaultParams: { hue: 0.0, hueWidth: 0.07, trail: 0.68 },
     controls: [
       createSlider("hue", "Hue", 0, 1, 0.01),
       createSlider("hueWidth", "Hue Width", 0.02, 0.25, 0.01),
@@ -265,12 +479,12 @@ const EFFECT_DEFINITIONS = [
   },
   {
     type: "datamoshSmear",
-    label: "Datamosh Smear",
-    buttonLabel: "Datamosh Smear",
+    label: "Blur Smear",
+    buttonLabel: "Blur Smear",
     accent: EFFECT_COLORS.datamoshSmear,
     rackDividerLabel: "NEW EFFECTS TESTING",
     defaultBlend: "normal",
-    defaultParams: { threshold: 0.14, smear: 0.78, refresh: 0.12, detail: 0.5, signalLoss: 0, emissionRate: 1, lifetime: 0.42 },
+    defaultParams: { threshold: 0.12, smear: 0.86, refresh: 0.08, detail: 0.64, signalLoss: 0.08, emissionRate: 1.35, lifetime: 0.5 },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("smear", "Smear", 0, 1, 0.01),
@@ -282,17 +496,296 @@ const EFFECT_DEFINITIONS = [
     ],
   },
   {
-    type: "feedbackTrails",
-    label: "Feedback Trails",
-    buttonLabel: "Feedback Trails",
-    accent: EFFECT_COLORS.feedbackTrails,
-    defaultBlend: "screen",
-    defaultParams: { feedback: 0.86, zoom: 0.22, sourceMix: 0.72, drift: 0.24 },
+    type: "vfxHalftone",
+    label: "Halftone",
+    buttonLabel: "Halftone",
+    accent: EFFECT_COLORS.vfxHalftone,
+    defaultBlend: "normal",
+    defaultParams: {},
+    controls: [],
+  },
+  {
+    type: "vfxDuotone",
+    label: "Duotone",
+    buttonLabel: "Duotone",
+    accent: EFFECT_COLORS.vfxDuotone,
+    defaultBlend: "normal",
+    defaultParams: {
+      color1Hue: 0.62,
+      color1Saturation: 0.74,
+      color1Lightness: 0.18,
+      color2Hue: 0.12,
+      color2Saturation: 0.94,
+      color2Lightness: 0.72,
+      speed: 0.12,
+    },
     controls: [
-      createSlider("feedback", "Feedback", 0.1, 0.98, 0.01),
-      createSlider("zoom", "Zoom", 0, 1, 0.01),
-      createSlider("sourceMix", "Source Mix", 0.02, 1, 0.01),
+      createSlider("color1Hue", "Color 1 Hue", 0, 1, 0.01),
+      createSlider("color1Saturation", "Color 1 Sat", 0, 1, 0.01),
+      createSlider("color1Lightness", "Color 1 Light", 0, 1, 0.01),
+      createSlider("color2Hue", "Color 2 Hue", 0, 1, 0.01),
+      createSlider("color2Saturation", "Color 2 Sat", 0, 1, 0.01),
+      createSlider("color2Lightness", "Color 2 Light", 0, 1, 0.01),
+      createSlider("speed", "Speed", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "greenCrt",
+    label: "Green CRT",
+    buttonLabel: "Green Filter",
+    accent: EFFECT_COLORS.greenCrt,
+    defaultBlend: "normal",
+    defaultParams: { intensity: 2.1, contrast: 1.7, grid: 1.4, glow: 1.6 },
+    controls: [
+      createSlider("intensity", "Intensity", 0, 5, 0.01),
+      createSlider("contrast", "Contrast", 0, 5, 0.01),
+      createSlider("grid", "Grid", 0, 5, 0.01),
+      createSlider("glow", "Glow", 0, 5, 0.01),
+    ],
+  },
+  {
+    type: "blueCrt",
+    label: "Blue CRT",
+    buttonLabel: "Blue Filter",
+    accent: EFFECT_COLORS.blueCrt,
+    defaultBlend: "normal",
+    defaultParams: { intensity: 2.1, contrast: 1.7, grid: 1.4, glow: 1.6 },
+    controls: [
+      createSlider("intensity", "Intensity", 0, 5, 0.01),
+      createSlider("contrast", "Contrast", 0, 5, 0.01),
+      createSlider("grid", "Grid", 0, 5, 0.01),
+      createSlider("glow", "Glow", 0, 5, 0.01),
+    ],
+  },
+  {
+    type: "redCrt",
+    label: "Red CRT",
+    buttonLabel: "Red Filter",
+    accent: EFFECT_COLORS.redCrt,
+    defaultBlend: "normal",
+    defaultParams: { intensity: 2.1, contrast: 1.7, grid: 1.4, glow: 1.6 },
+    controls: [
+      createSlider("intensity", "Intensity", 0, 5, 0.01),
+      createSlider("contrast", "Contrast", 0, 5, 0.01),
+      createSlider("grid", "Grid", 0, 5, 0.01),
+      createSlider("glow", "Glow", 0, 5, 0.01),
+    ],
+  },
+  {
+    type: "nightVision",
+    label: "Night Vision",
+    buttonLabel: "Night Vision",
+    accent: EFFECT_COLORS.nightVision,
+    defaultBlend: "normal",
+    defaultParams: {
+      gain: 3.2,
+      gamma: 1.6,
+      contrast: 1.35,
+      greenIntensity: 0.92,
+      tintBalance: 0.42,
+      desaturation: 0.88,
+      noiseAmount: 0.22,
+      noiseSize: 1.2,
+      noiseFlicker: 0.72,
+      bloom: 0.38,
+      bloomThreshold: 0.64,
+      vignetteStrength: 0.4,
+      vignetteRadius: 0.72,
+      sharpness: 0.28,
+      edgeEnhance: 0.24,
+      scanlineIntensity: 0.16,
+      scanlineSpacing: 3,
+      scanlineSpeed: 0.18,
+      hotspot: 0.34,
+      hotspotFalloff: 0.62,
+      deadPixels: 0.08,
+    },
+    controls: [
+      createSlider("gain", "Gain / Exposure", 0.4, 5, 0.01),
+      createSlider("gamma", "Gamma", 0.4, 3, 0.01),
+      createSlider("contrast", "Contrast", 0, 3, 0.01),
+      createSlider("greenIntensity", "Green Intensity", 0, 1, 0.01),
+      createSlider("tintBalance", "Tint Balance", 0, 1, 0.01),
+      createSlider("desaturation", "Desaturation", 0, 1, 0.01),
+      createSlider("noiseAmount", "Noise Amount", 0, 1, 0.01),
+      createSlider("noiseSize", "Noise Size", 0.5, 4, 0.01),
+      createSlider("noiseFlicker", "Noise Flicker", 0, 2, 0.01),
+      createSlider("bloom", "Bloom / Glow", 0, 1.5, 0.01),
+      createSlider("bloomThreshold", "Bloom Threshold", 0.2, 1, 0.01),
+      createSlider("vignetteStrength", "Vignette Strength", 0, 1, 0.01),
+      createSlider("vignetteRadius", "Vignette Radius", 0.2, 1.2, 0.01),
+      createSlider("sharpness", "Sharpness", 0, 1, 0.01),
+      createSlider("edgeEnhance", "Edge Enhance", 0, 1, 0.01),
+      createSlider("scanlineIntensity", "Scanline Intensity", 0, 1, 0.01),
+      createSlider("scanlineSpacing", "Scanline Spacing", 1, 10, 1, 0),
+      createSlider("scanlineSpeed", "Scanline Speed", 0, 1, 0.01),
+      createSlider("hotspot", "IR Hotspot", 0, 1, 0.01),
+      createSlider("hotspotFalloff", "Hotspot Falloff", 0.1, 1, 0.01),
+      createSlider("deadPixels", "Dead Pixels", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "prismExtrude",
+    label: "Prism Extrude",
+    buttonLabel: "Prism Extrude",
+    accent: EFFECT_COLORS.prismExtrude,
+    defaultBlend: "normal",
+    defaultParams: { depth: 0.6, spread: 0.48, glow: 0.42, hue: 0.82 },
+    controls: [
+      createSlider("depth", "Depth", 0, 1, 0.01),
+      createSlider("spread", "Spread", 0, 1, 0.01),
+      createSlider("glow", "Glow", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "chromeRelief",
+    label: "Chrome Relief",
+    buttonLabel: "Chrome Relief",
+    accent: EFFECT_COLORS.chromeRelief,
+    defaultBlend: "normal",
+    defaultParams: { depth: 0.78, polish: 0.72, edge: 0.64, tint: 0.58 },
+    controls: [
+      createSlider("depth", "Depth", 0, 1, 0.01),
+      createSlider("polish", "Polish", 0, 1, 0.01),
+      createSlider("edge", "Edge", 0, 1, 0.01),
+      createSlider("tint", "Tint", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "diamondPulse",
+    label: "Diamond Pulse",
+    buttonLabel: "Diamond Pulse",
+    accent: EFFECT_COLORS.diamondPulse,
+    defaultBlend: "normal",
+    defaultParams: { threshold: 0.14, detail: 0.66, trail: 0.32, hue: 0.88, size: 0.88, pulse: 0.6 },
+    controls: [
+      createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
+      createSlider("detail", "Detail", 0, 1, 0.01),
+      createSlider("trail", "Trail", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+      createSlider("size", "Size", 0.3, 1.6, 0.01),
+      createSlider("pulse", "Pulse", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "orbitRings",
+    label: "Orbit Rings",
+    buttonLabel: "Orbit Rings",
+    accent: EFFECT_COLORS.orbitRings,
+    defaultBlend: "normal",
+    defaultParams: { threshold: 0.14, detail: 0.64, trail: 0.24, hue: 0.16, radius: 0.84, sweep: 0.62 },
+    controls: [
+      createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
+      createSlider("detail", "Detail", 0, 1, 0.01),
+      createSlider("trail", "Trail", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+      createSlider("radius", "Radius", 0.2, 1.6, 0.01),
+      createSlider("sweep", "Sweep", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "warpMesh",
+    label: "Warp Mesh",
+    buttonLabel: "Warp Mesh",
+    accent: EFFECT_COLORS.warpMesh,
+    defaultBlend: "normal",
+    defaultParams: { threshold: 0.13, detail: 0.68, trail: 0.3, hue: 0.13, warp: 0.58, links: 0.68 },
+    controls: [
+      createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
+      createSlider("detail", "Detail", 0, 1, 0.01),
+      createSlider("trail", "Trail", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+      createSlider("warp", "Warp", 0, 1, 0.01),
+      createSlider("links", "Links", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "totemEcho",
+    label: "Totem Echo",
+    buttonLabel: "Totem Echo",
+    accent: EFFECT_COLORS.totemEcho,
+    defaultBlend: "normal",
+    defaultParams: { threshold: 0.14, detail: 0.62, trail: 0.38, hue: 0.66, depth: 0.62, drift: 0.48 },
+    controls: [
+      createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
+      createSlider("detail", "Detail", 0, 1, 0.01),
+      createSlider("trail", "Trail", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+      createSlider("depth", "Depth", 0, 1, 0.01),
       createSlider("drift", "Drift", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "scribbleAura",
+    label: "Scribble Aura",
+    buttonLabel: "Scribble Aura",
+    accent: EFFECT_COLORS.scribbleAura,
+    defaultBlend: "normal",
+    defaultParams: { threshold: 0.14, detail: 0.72, trail: 0.3, hue: 0.04, wobble: 0.6, loops: 0.68 },
+    controls: [
+      createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
+      createSlider("detail", "Detail", 0, 1, 0.01),
+      createSlider("trail", "Trail", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+      createSlider("wobble", "Wobble", 0, 1, 0.01),
+      createSlider("loops", "Loops", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "paperStack",
+    label: "Paper Stack",
+    buttonLabel: "Paper Stack",
+    accent: EFFECT_COLORS.paperStack,
+    defaultBlend: "normal",
+    defaultParams: { offset: 0.48, poster: 0.68, shadow: 0.62, hue: 0.08 },
+    controls: [
+      createSlider("offset", "Offset", 0, 1, 0.01),
+      createSlider("poster", "Poster", 0, 1, 0.01),
+      createSlider("shadow", "Shadow", 0, 1, 0.01),
+      createSlider("hue", "Hue", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "highlightsOnly",
+    label: "Highlights Only",
+    buttonLabel: "Highlights",
+    accent: EFFECT_COLORS.highlightsOnly,
+    defaultBlend: "normal",
+    defaultParams: { blur: 0, brightness: 1.8, contrast: 2.6, softness: 0.16 },
+    controls: [
+      createSlider("blur", "Blur", 0, 12, 0.5, 1),
+      createSlider("brightness", "Brightness", 0.6, 2.6, 0.01),
+      createSlider("contrast", "Contrast", 0.6, 3.2, 0.01),
+      createSlider("softness", "Softness", 0.04, 0.5, 0.01),
+    ],
+  },
+  {
+    type: "midtonesOnly",
+    label: "Midtones Only",
+    buttonLabel: "Midtones",
+    accent: EFFECT_COLORS.midtonesOnly,
+    defaultBlend: "normal",
+    defaultParams: { blur: 0, brightness: 1.6, contrast: 2.2, softness: 0.18 },
+    controls: [
+      createSlider("blur", "Blur", 0, 12, 0.5, 1),
+      createSlider("brightness", "Brightness", 0.6, 2.6, 0.01),
+      createSlider("contrast", "Contrast", 0.6, 3.2, 0.01),
+      createSlider("softness", "Softness", 0.04, 0.5, 0.01),
+    ],
+  },
+  {
+    type: "shadowsOnly",
+    label: "Shadows Only",
+    buttonLabel: "Shadows",
+    accent: EFFECT_COLORS.shadowsOnly,
+    defaultBlend: "normal",
+    defaultParams: { blur: 0, brightness: 2.2, contrast: 2.9, softness: 0.16 },
+    controls: [
+      createSlider("blur", "Blur", 0, 12, 0.5, 1),
+      createSlider("brightness", "Brightness", 0.6, 2.6, 0.01),
+      createSlider("contrast", "Contrast", 0.6, 3.2, 0.01),
+      createSlider("softness", "Softness", 0.04, 0.5, 0.01),
     ],
   },
   {
@@ -301,7 +794,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Edge Glow",
     accent: EFFECT_COLORS.edgeGlow,
     defaultBlend: "screen",
-    defaultParams: { threshold: 0.12, darkness: 0.4, glow: 0.82 },
+    defaultParams: { threshold: 0.06, darkness: 0.34, glow: 1 },
     controls: [
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
       createSlider("darkness", "Darkness", 0, 1, 0.01),
@@ -314,7 +807,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Film Grain",
     accent: EFFECT_COLORS.filmGrain,
     defaultBlend: "normal",
-    defaultParams: { amount: 0.42, contrast: 0.3, grainSize: 1.4, speed: 0.62 },
+    defaultParams: { amount: 0.5, contrast: 0.26, grainSize: 1.1, speed: 0.78 },
     controls: [
       createSlider("amount", "Amount", 0, 1, 0.01),
       createSlider("contrast", "Contrast", 0, 1, 0.01),
@@ -323,25 +816,12 @@ const EFFECT_DEFINITIONS = [
     ],
   },
   {
-    type: "voronoiShading",
-    label: "Voronoi Shade",
-    buttonLabel: "Voronoi Shade",
-    accent: EFFECT_COLORS.voronoiShading,
-    defaultBlend: "normal",
-    defaultParams: { pointCount: 32, cellSize: 8, posterize: 0.58 },
-    controls: [
-      createSlider("pointCount", "Points", 8, 48, 1, 0),
-      createSlider("cellSize", "Cell Size", 4, 20, 1, 0),
-      createSlider("posterize", "Posterize", 0, 1, 0.01),
-    ],
-  },
-  {
     type: "punchBlackWhite",
     label: "Punch B&W",
     buttonLabel: "Punch B&W",
     accent: EFFECT_COLORS.punchBlackWhite,
     defaultBlend: "normal",
-    defaultParams: { contrast: 0.84, screen: 0.38, crush: 0.44, roughness: 0.26 },
+    defaultParams: { contrast: 0.96, screen: 0.44, crush: 0.56, roughness: 0.34 },
     controls: [
       createSlider("contrast", "Contrast", 0, 1, 0.01),
       createSlider("screen", "Screen", 0, 1, 0.01),
@@ -357,7 +837,7 @@ const EFFECT_DEFINITIONS = [
     accent: EFFECT_COLORS.sparseOpticalFlow,
     rackDividerLabel: "Particle Trackers",
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { featureCount: 44, search: 0.55, detail: 0.56, emissionRate: 1, lifetime: 0.4 },
+    defaultParams: { featureCount: 58, search: 0.62, detail: 0.66, emissionRate: 1.3, lifetime: 0.46 },
     controls: [
       createSlider("featureCount", "Features", 8, 88, 1, 0),
       createSlider("search", "Search", 0.1, 1, 0.01),
@@ -372,7 +852,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "Harris Corners",
     accent: EFFECT_COLORS.harrisCorners,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { featureCount: 54, threshold: 0.18, detail: 0.58, emissionRate: 1, lifetime: 0.4 },
+    defaultParams: { featureCount: 66, threshold: 0.16, detail: 0.68, emissionRate: 1.32, lifetime: 0.46 },
     controls: [
       createSlider("featureCount", "Features", 8, 96, 1, 0),
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
@@ -387,7 +867,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "ORB Tracking",
     accent: EFFECT_COLORS.orbTracking,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { featureCount: 48, threshold: 0.18, detail: 0.54, emissionRate: 1, lifetime: 0.38 },
+    defaultParams: { featureCount: 60, threshold: 0.16, detail: 0.64, emissionRate: 1.28, lifetime: 0.44 },
     controls: [
       createSlider("featureCount", "Features", 8, 84, 1, 0),
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
@@ -402,7 +882,7 @@ const EFFECT_DEFINITIONS = [
     buttonLabel: "FAST Keypoints",
     accent: EFFECT_COLORS.fastKeypoints,
     defaultBlend: DEFAULT_BLEND,
-    defaultParams: { featureCount: 68, threshold: 0.18, detail: 0.6, emissionRate: 1, lifetime: 0.36 },
+    defaultParams: { featureCount: 80, threshold: 0.16, detail: 0.7, emissionRate: 1.34, lifetime: 0.42 },
     controls: [
       createSlider("featureCount", "Features", 8, 112, 1, 0),
       createSlider("threshold", "Threshold", 0.02, 0.96, 0.01),
@@ -413,9 +893,86 @@ const EFFECT_DEFINITIONS = [
   },
 ];
 
+const EFFECT_RACK_GROUP_ORDER = Object.freeze({
+  tracking: 0,
+  color: 1,
+  particles: 2,
+  new: 3,
+});
+
+const EFFECT_RACK_GROUP_LABELS = Object.freeze({
+  tracking: "Tracking",
+  color: "Color Effects",
+  particles: "Particle Trackers",
+  new: "NEW EFFECTS TESTING",
+});
+
+const EFFECT_TYPE_TO_RACK_GROUP = Object.freeze({
+  clusterTrack: "tracking",
+  motionThreshold: "tracking",
+  multiBlob: "tracking",
+  boundingBoxes: "tracking",
+  skinTone: "tracking",
+  greenScreenMotion: "tracking",
+  colorCentroid: "tracking",
+  diamondPulse: "tracking",
+  orbitRings: "tracking",
+  warpMesh: "tracking",
+  totemEcho: "tracking",
+  scribbleAura: "tracking",
+  datamoshSmear: "color",
+  vfxHalftone: "color",
+  vfxDuotone: "color",
+  greenCrt: "color",
+  blueCrt: "color",
+  redCrt: "color",
+  prismExtrude: "color",
+  chromeRelief: "color",
+  paperStack: "color",
+  highlightsOnly: "color",
+  midtonesOnly: "color",
+  shadowsOnly: "color",
+  edgeGlow: "color",
+  filmGrain: "color",
+  punchBlackWhite: "color",
+  sparseOpticalFlow: "particles",
+  harrisCorners: "particles",
+  orbTracking: "particles",
+  fastKeypoints: "particles",
+  nightVision: "new",
+});
+
+EFFECT_DEFINITIONS.forEach((definition) => {
+  const rackGroup = EFFECT_TYPE_TO_RACK_GROUP[definition.type] || "tracking";
+  definition.rackGroup = rackGroup;
+  definition.rackGroupLabel = EFFECT_RACK_GROUP_LABELS[rackGroup];
+  definition.rackGroupOrder = EFFECT_RACK_GROUP_ORDER[rackGroup] ?? Number.MAX_SAFE_INTEGER;
+});
+
 const EFFECT_MAP = new Map(EFFECT_DEFINITIONS.map((definition) => [definition.type, definition]));
 
 const MOTION_EFFECT_TYPES = new Set(EFFECT_DEFINITIONS.map((definition) => definition.type));
+
+const CRT_FILTER_PROFILES = Object.freeze({
+  greenCrt: Object.freeze({
+    base: Object.freeze({ r: 88, g: 255, b: 136 }),
+    highlight: Object.freeze({ r: 236, g: 255, b: 236 }),
+    shadow: Object.freeze({ r: 4, g: 18, b: 7 }),
+    stripe: Object.freeze([0.44, 1.08, 0.54]),
+  }),
+  blueCrt: Object.freeze({
+    base: Object.freeze({ r: 86, g: 148, b: 255 }),
+    highlight: Object.freeze({ r: 230, g: 242, b: 255 }),
+    shadow: Object.freeze({ r: 4, g: 8, b: 18 }),
+    stripe: Object.freeze([0.48, 0.58, 1.08]),
+  }),
+  redCrt: Object.freeze({
+    base: Object.freeze({ r: 205, g: 18, b: 28 }),
+    highlight: Object.freeze({ r: 255, g: 118, b: 112 }),
+    shadow: Object.freeze({ r: 12, g: 0, b: 1 }),
+    stripe: Object.freeze([1.18, 0.28, 0.22]),
+  }),
+});
 
 const FAST_RING = Object.freeze([
   [0, -3], [1, -3], [2, -2], [3, -1],
@@ -486,6 +1043,8 @@ function buildSharedAnalysis(sourceImageData, previousSourceImageData) {
     hsv: null,
     ycrcb: null,
     density: null,
+    lumaIntegral: null,
+    blurredLumaCache: new Map(),
     componentCache: new Map(),
   };
 }
@@ -598,6 +1157,66 @@ function ensureClusterDensity(analysis) {
   return density;
 }
 
+function ensureLumaIntegral(analysis) {
+  if (analysis.lumaIntegral) {
+    return analysis.lumaIntegral;
+  }
+
+  const stride = analysis.width + 1;
+  const integral = new Float32Array((analysis.height + 1) * stride);
+
+  for (let y = 0; y < analysis.height; y += 1) {
+    let rowSum = 0;
+    const srcRow = y * analysis.width;
+    const dstRow = (y + 1) * stride;
+    const prevRow = y * stride;
+    for (let x = 0; x < analysis.width; x += 1) {
+      rowSum += analysis.luma[srcRow + x];
+      integral[dstRow + x + 1] = integral[prevRow + x + 1] + rowSum;
+    }
+  }
+
+  analysis.lumaIntegral = integral;
+  return integral;
+}
+
+function ensureBlurredLuma(analysis, radius = 0) {
+  const blurRadius = Math.max(0, Math.round(radius));
+  if (analysis.blurredLumaCache.has(blurRadius)) {
+    return analysis.blurredLumaCache.get(blurRadius);
+  }
+
+  if (blurRadius <= 0) {
+    analysis.blurredLumaCache.set(0, analysis.luma);
+    return analysis.luma;
+  }
+
+  const output = new Float32Array(analysis.pixels);
+  const integral = ensureLumaIntegral(analysis);
+  const stride = analysis.width + 1;
+
+  for (let y = 0; y < analysis.height; y += 1) {
+    const top = Math.max(0, y - blurRadius);
+    const bottom = Math.min(analysis.height - 1, y + blurRadius);
+    const row = y * analysis.width;
+    for (let x = 0; x < analysis.width; x += 1) {
+      const left = Math.max(0, x - blurRadius);
+      const right = Math.min(analysis.width - 1, x + blurRadius);
+      const sum = (
+        integral[(bottom + 1) * stride + (right + 1)]
+        - integral[top * stride + (right + 1)]
+        - integral[(bottom + 1) * stride + left]
+        + integral[top * stride + left]
+      );
+      const area = (right - left + 1) * (bottom - top + 1);
+      output[row + x] = sum / area;
+    }
+  }
+
+  analysis.blurredLumaCache.set(blurRadius, output);
+  return output;
+}
+
 function ensureLayerState(layer, width, height) {
   const runtime = layer.runtime;
   const pixels = width * height;
@@ -605,15 +1224,13 @@ function ensureLayerState(layer, width, height) {
     return runtime.motionState;
   }
 
-  // Each effect layer keeps its own analysis history so temporal averages, track trails, and the
-  // new persistent particle pools survive frame-to-frame without leaking into other layers.
+  // Each effect layer keeps its own track state, centroid trails, and particle pools so the
+  // overlays survive frame-to-frame without leaking into other layers.
   runtime.motionState = {
     width,
     height,
     pixels,
     buffers: {},
-    temporalFrames: [],
-    temporalSum: new Float32Array(pixels),
     tracks: [],
     nextTrackId: 1,
     centroidTrail: [],
@@ -634,6 +1251,10 @@ function ensureImageBuffer(state, key, width, height) {
   const nextBuffer = { width, height, data, imageData };
   state.buffers[key] = nextBuffer;
   return nextBuffer;
+}
+
+function copyFrameToBuffer(buffer, analysis) {
+  buffer.data.set(analysis.data);
 }
 
 function getDetailBlockSize(params, preset, multiplier = 1) {
@@ -822,16 +1443,53 @@ function writeMaskedSourceToBuffer(buffer, analysis, mask) {
   for (let index = 0, px = 0; index < analysis.pixels; index += 1, px += 4) {
     const intensity = mask[index] / 255;
     if (intensity > 0) {
-      buffer.data[px] = Math.round(analysis.data[px] * intensity);
-      buffer.data[px + 1] = Math.round(analysis.data[px + 1] * intensity);
-      buffer.data[px + 2] = Math.round(analysis.data[px + 2] * intensity);
+      buffer.data[px] = analysis.data[px];
+      buffer.data[px + 1] = analysis.data[px + 1];
+      buffer.data[px + 2] = analysis.data[px + 2];
+      buffer.data[px + 3] = Math.round(clamp(intensity, 0, 1) * 255);
     } else {
       buffer.data[px] = 0;
       buffer.data[px + 1] = 0;
       buffer.data[px + 2] = 0;
+      buffer.data[px + 3] = 0;
     }
-    buffer.data[px + 3] = 255;
   }
+}
+
+function buildTonalIsolationMask(analysis, params, mode = "highlights") {
+  const blur = clamp(params.blur ?? 0, 0, 12);
+  const brightness = clamp(params.brightness ?? 1, 0.4, 3);
+  const contrast = clamp(params.contrast ?? 1, 0.4, 4);
+  const softness = clamp(params.softness ?? 0.18, 0.04, 0.5);
+  const luma = ensureBlurredLuma(analysis, blur);
+  const output = new Uint8Array(analysis.pixels);
+
+  for (let index = 0; index < analysis.pixels; index += 1) {
+    const normalized = clamp(luma[index] / 255, 0, 1);
+    const filtered = clamp((normalized * brightness - 0.5) * contrast + 0.5, 0, 1);
+    let intensity = 0;
+
+    if (mode === "highlights") {
+      const start = clamp(0.54 - softness * 0.14, 0.18, 0.86);
+      const end = clamp(0.82 + softness * 0.08, start + 0.05, 0.99);
+      intensity = Math.pow(smoothstep(start, end, filtered), 0.8);
+    } else if (mode === "midtones") {
+      const center = 0.52;
+      const inner = 0.04 + softness * 0.08;
+      const outer = inner + 0.16 + softness * 0.22;
+      const distanceToCenter = Math.abs(filtered - center);
+      intensity = 1 - smoothstep(inner, outer, distanceToCenter);
+      intensity = Math.pow(clamp(intensity, 0, 1), 1.05);
+    } else {
+      const low = clamp(0.12 - softness * 0.04, 0.01, 0.36);
+      const high = clamp(0.4 + softness * 0.12, low + 0.05, 0.82);
+      intensity = Math.pow(1 - smoothstep(low, high, filtered), 0.9);
+    }
+
+    output[index] = Math.round(clamp(intensity, 0, 1) * 255);
+  }
+
+  return output;
 }
 
 function buildActivityGrid(values, width, height, blockSize, normalizer = 255) {
@@ -1067,6 +1725,146 @@ function drawCrosshair(ctx, x, y, size, color, alpha = 0.9) {
   ctx.lineTo(x, y + size);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawTargetReticle(ctx, x, y, size, color, alpha = 0.9) {
+  const outer = Math.max(8, size);
+  const gap = Math.max(3, outer * 0.28);
+  const corner = outer * 0.72;
+  const bracket = Math.max(3, outer * 0.24);
+
+  ctx.save();
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.lineWidth = 1.25;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+
+  ctx.moveTo(x - outer, y);
+  ctx.lineTo(x - gap, y);
+  ctx.moveTo(x + gap, y);
+  ctx.lineTo(x + outer, y);
+  ctx.moveTo(x, y - outer);
+  ctx.lineTo(x, y - gap);
+  ctx.moveTo(x, y + gap);
+  ctx.lineTo(x, y + outer);
+
+  ctx.moveTo(x - corner, y - corner);
+  ctx.lineTo(x - corner + bracket, y - corner);
+  ctx.moveTo(x - corner, y - corner);
+  ctx.lineTo(x - corner, y - corner + bracket);
+
+  ctx.moveTo(x + corner, y - corner);
+  ctx.lineTo(x + corner - bracket, y - corner);
+  ctx.moveTo(x + corner, y - corner);
+  ctx.lineTo(x + corner, y - corner + bracket);
+
+  ctx.moveTo(x - corner, y + corner);
+  ctx.lineTo(x - corner + bracket, y + corner);
+  ctx.moveTo(x - corner, y + corner);
+  ctx.lineTo(x - corner, y + corner - bracket);
+
+  ctx.moveTo(x + corner, y + corner);
+  ctx.lineTo(x + corner - bracket, y + corner);
+  ctx.moveTo(x + corner, y + corner);
+  ctx.lineTo(x + corner, y + corner - bracket);
+
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDiamond(ctx, x, y, width, height, color, alpha = 0.9, rotation = 0, fillAlpha = 0) {
+  const hw = width * 0.5;
+  const hh = height * 0.5;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.beginPath();
+  ctx.moveTo(0, -hh);
+  ctx.lineTo(hw, 0);
+  ctx.lineTo(0, hh);
+  ctx.lineTo(-hw, 0);
+  ctx.closePath();
+  if (fillAlpha > 0.001) {
+    ctx.fillStyle = rgba(color, fillAlpha);
+    ctx.fill();
+  }
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSquareNode(ctx, x, y, size, color, alpha = 0.9, rotation = 0) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.lineWidth = 1.2;
+  ctx.strokeRect(-size * 0.5, -size * 0.5, size, size);
+  ctx.restore();
+}
+
+function buildTrackDistortedLoop(track, elapsed, amount = 0.4, points = 12) {
+  const loop = [];
+  const rx = track.width * 0.5;
+  const ry = track.height * 0.5;
+  for (let index = 0; index < points; index += 1) {
+    const t = index / points;
+    const angle = t * Math.PI * 2;
+    const noise = sampleValueNoise(
+      Math.cos(angle) * 1.7 + track.id * 0.33 + elapsed * 0.8,
+      Math.sin(angle) * 1.7 + track.id * 0.21 - elapsed * 0.5,
+      71,
+    ) - 0.5;
+    const radiusX = rx * (1 + noise * amount);
+    const radiusY = ry * (1 + noise * amount);
+    loop.push({
+      x: track.x + Math.cos(angle) * radiusX,
+      y: track.y + Math.sin(angle) * radiusY,
+    });
+  }
+  return loop;
+}
+
+function strokeClosedLoop(ctx, points, color, alpha = 0.8) {
+  if (!points || points.length < 3) {
+    return;
+  }
+  ctx.save();
+  ctx.strokeStyle = rgba(color, alpha);
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let index = 1; index < points.length; index += 1) {
+    ctx.lineTo(points[index].x, points[index].y);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function resolveMotionTrackingColor(layer, fallbackHue = 0.6, saturation = 0.88, lightness = 0.66) {
+  return typeof layer.params.hue === "number"
+    ? hslToRgb(clamp(layer.params.hue, 0, 1), saturation, lightness)
+    : hslToRgb(fallbackHue, saturation, lightness);
+}
+
+function collectStylizedMotionTracks(layer, analysis, preset, options = {}) {
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const mask = buildDensityMask(analysis, layer.params);
+  const detections = buildTrackerDetections(analysis, mask, layer.params, preset, {
+    cacheKey: options.cacheKey || `${layer.type}-tracks`,
+    threshold: options.threshold ?? (0.08 + clamp(layer.params.threshold || 0.16, 0, 1) * 0.28),
+    minCells: options.minCells || 2,
+    multiplier: options.multiplier || 1,
+  });
+  const tracks = updateTracks(state, detections, {
+    maxDistance: options.maxDistance ?? Math.max(32, getDetailBlockSize(layer.params, preset, 1.1) * 4),
+    trailLength: options.trailLength || 20,
+    smoothing: options.smoothing ?? 0.4,
+    maxMissed: options.maxMissed || 8,
+  });
+
+  return { state, tracks };
 }
 
 function patchDifference(sourceA, sourceB, width, height, x, y, dx, dy, radius, bestSoFar = Number.POSITIVE_INFINITY) {
@@ -1356,38 +2154,6 @@ function trackPointsByPatch(analysis, points, options = {}) {
   return matches;
 }
 
-function updateTemporalAverageMask(state, analysis, bufferFrames, threshold) {
-  // The temporal average background model highlights new motion by comparing the current frame
-  // against a rolling luma history instead of just the immediately previous frame.
-  const currentFrame = Uint8Array.from(analysis.luma, (value) => Math.round(value));
-  const historyCount = state.temporalFrames.length;
-  const output = new Uint8Array(analysis.pixels);
-
-  if (historyCount > 0) {
-    const thresholdValue = 8 + threshold * 150;
-    for (let index = 0; index < analysis.pixels; index += 1) {
-      const average = state.temporalSum[index] / historyCount;
-      const delta = Math.abs(analysis.luma[index] - average);
-      output[index] = Math.round(clamp((delta - thresholdValue) / Math.max(1, 255 - thresholdValue), 0, 1) * 255);
-    }
-  }
-
-  state.temporalFrames.push(currentFrame);
-  for (let index = 0; index < analysis.pixels; index += 1) {
-    state.temporalSum[index] += currentFrame[index];
-  }
-
-  const maxFrames = Math.max(2, Math.round(bufferFrames));
-  while (state.temporalFrames.length > maxFrames) {
-    const removed = state.temporalFrames.shift();
-    for (let index = 0; index < analysis.pixels; index += 1) {
-      state.temporalSum[index] -= removed[index];
-    }
-  }
-
-  return output;
-}
-
 function buildTrackerDetections(analysis, mask, params, preset, options = {}) {
   const blockSize = getDetailBlockSize(params, preset, options.multiplier || 1);
   const componentThreshold = options.threshold ?? (0.08 + clamp(params.threshold || 0.16, 0, 1) * 0.36);
@@ -1412,6 +2178,54 @@ function hashUnit3(a, b, c) {
     Math.imul((c + 1) | 0, 83492791)
   ) >>> 0;
   return value / 4294967295;
+}
+
+function sampleValueNoise(x, y, seed = 0) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const tx = x - x0;
+  const ty = y - y0;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sy = ty * ty * (3 - 2 * ty);
+
+  const n00 = hashUnit3(x0, y0, seed);
+  const n10 = hashUnit3(x0 + 1, y0, seed);
+  const n01 = hashUnit3(x0, y0 + 1, seed);
+  const n11 = hashUnit3(x0 + 1, y0 + 1, seed);
+
+  return lerp(lerp(n00, n10, sx), lerp(n01, n11, sx), sy);
+}
+
+function sampleFilmNoise(x, y, time, scale, seed = 0) {
+  const nx = x * scale;
+  const ny = y * scale;
+  const octaveA = sampleValueNoise(nx + time * 0.9, ny - time * 0.35, seed);
+  const octaveB = sampleValueNoise(nx * 2.1 - time * 1.7, ny * 2.1 + time * 0.8, seed + 17);
+  const octaveC = sampleValueNoise(nx * 4.4 + time * 2.6, ny * 4.1 - time * 1.9, seed + 53);
+  return ((octaveA - 0.5) * 0.55 + (octaveB - 0.5) * 0.3 + (octaveC - 0.5) * 0.15) * 2;
+}
+
+function ensureDeadPixelField(state, width, height, amount = 0) {
+  const clampedAmount = clamp(amount, 0, 1);
+  const count = Math.round(clampedAmount * Math.max(0, Math.min(640, (width * height) / 2200)));
+  const cacheKey = `${width}x${height}:${count}`;
+
+  if (state.deadPixelField?.key === cacheKey) {
+    return state.deadPixelField.items;
+  }
+
+  const items = [];
+  for (let index = 0; index < count; index += 1) {
+    items.push({
+      x: Math.floor(hashUnit3(index, width, 911) * width),
+      y: Math.floor(hashUnit3(height, index, 131) * height),
+      strength: 0.45 + hashUnit3(index, 7, 19) * 0.55,
+      size: hashUnit3(index, 27, 41) > 0.86 ? 2 : 1,
+    });
+  }
+
+  state.deadPixelField = { key: cacheKey, items };
+  return items;
 }
 
 function getParticleSprite(color, radius = 0.32) {
@@ -1709,7 +2523,12 @@ function updateTrackedParticles(layer, analysis, vectors, preset, elapsed = 0, o
 function renderClusterTrackLayer(layer, analysis, preset) {
   // Cluster Track is the dense motion HUD: it boxes active regions, draws track ids, and leaves
   // a labeled trail so you can see how the motion model is grouping subjects over time.
-  const color = getEffectColor(layer);
+  const color = typeof layer.params.hue === "number"
+    ? hslToRgb(clamp(layer.params.hue, 0, 1), 0.86, 0.66)
+    : getEffectColor(layer);
+  const showTrails = layer.params.showTrails !== false;
+  const showConnections = layer.params.showConnections !== false;
+  const sizeScale = clamp(layer.params.size ?? 1, 0.2, 1);
   const density = ensureClusterDensity(analysis);
   const state = ensureLayerState(layer, analysis.width, analysis.height);
   const blockSize = getDetailBlockSize(layer.params, preset, 0.92);
@@ -1724,25 +2543,29 @@ function renderClusterTrackLayer(layer, analysis, preset) {
     smoothing: 0.34,
   });
 
-  beginLayerTrail(layer, layer.params.trail ?? DEFAULT_TRAIL, "screen");
+  beginLayerTrail(layer, showTrails ? (layer.params.trail ?? DEFAULT_TRAIL) : 0, "screen");
   const ctx = layer.runtime.ctx;
   ctx.save();
   ctx.strokeStyle = rgba(color, 0.85);
   ctx.lineWidth = 1.2;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.shadowColor = rgba(color, 0.42);
-  ctx.shadowBlur = 12;
+  ctx.shadowColor = showTrails ? rgba(color, 0.42) : "rgba(0, 0, 0, 0)";
+  ctx.shadowBlur = showTrails ? 12 : 0;
 
   tracks.forEach((track, index) => {
     if (track.missed > 2) {
       return;
     }
-    drawTrail(ctx, track.trail, color, 1.4, 0.42);
-    const x = track.x - track.width * 0.5;
-    const y = track.y - track.height * 0.5;
-    ctx.strokeRect(x, y, track.width, track.height);
-    drawCrosshair(ctx, track.x, track.y, 5, color, 0.84);
+    if (showTrails) {
+      drawTrail(ctx, track.trail, color, 1.4, 0.42);
+    }
+    const drawWidth = track.width * sizeScale;
+    const drawHeight = track.height * sizeScale;
+    const x = track.x - drawWidth * 0.5;
+    const y = track.y - drawHeight * 0.5;
+    ctx.strokeRect(x, y, drawWidth, drawHeight);
+    drawCrosshair(ctx, track.x, track.y, 3.5 + sizeScale * 1.5, color, 0.84);
     if (layer.params.showLabels) {
       ctx.fillStyle = rgba(color, 0.92);
       ctx.font = '10px "IBM Plex Mono", monospace';
@@ -1750,8 +2573,8 @@ function renderClusterTrackLayer(layer, analysis, preset) {
     }
   });
 
-  if (tracks.length > 1) {
-    ctx.strokeStyle = rgba(color, 0.24);
+  if (showConnections && tracks.length > 1) {
+    ctx.strokeStyle = rgba(color, showTrails ? 0.24 : 0.52);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(tracks[0].x, tracks[0].y);
@@ -1763,19 +2586,6 @@ function renderClusterTrackLayer(layer, analysis, preset) {
 
   ctx.restore();
   finishLayerTrail(layer);
-}
-
-function renderTemporalAverageLayer(layer, analysis) {
-  // Temporal Avg BG uses a rolling background estimate to reveal anything that diverges from
-  // the recent average, which makes slow ghosts and lingering motion read clearly.
-  const state = ensureLayerState(layer, analysis.width, analysis.height);
-  const mask = updateTemporalAverageMask(state, analysis, layer.params.bufferFrames || 18, clamp(layer.params.threshold || 0.16, 0, 1));
-  renderTintedMask(layer, analysis, mask, {
-    trail: layer.params.trail ?? 0.32,
-    blur: 2.2,
-    alphaScale: 0.92,
-    sourceMix: 0.12,
-  });
 }
 
 function renderMotionThresholdLayer(layer, analysis) {
@@ -1791,7 +2601,7 @@ function renderMotionThresholdLayer(layer, analysis) {
 }
 
 // NEW EFFECTS TESTING
-// Datamosh Smear reuses motion tracks to drag old frame data forward, and the new Signal Loss
+// Blur Smear reuses motion tracks to drag old frame data forward, and the new Signal Loss
 // slider progressively crushes the image into a coarse, particle-heavy breakup state.
 function renderDatamoshSmearLayer(layer, analysis, preset, elapsed = 0) {
   const state = ensureLayerState(layer, analysis.width, analysis.height);
@@ -1939,57 +2749,6 @@ function renderDatamoshSmearLayer(layer, analysis, preset, elapsed = 0) {
   finishLayerTrail(layer);
 }
 
-function renderFeedbackTrailsLayer(layer, analysis, elapsed = 0) {
-  // Feedback Trails reprojects the previous output back onto itself with a subtle zoom and drift,
-  // using motion centroids to steer the recursion when the scene has a clear moving subject.
-  const state = ensureLayerState(layer, analysis.width, analysis.height);
-  const sourceBuffer = ensureImageBuffer(state, "feedback-source", analysis.width, analysis.height);
-  sourceBuffer.data.set(analysis.data);
-  layer.runtime.auxCtx.clearRect(0, 0, analysis.width, analysis.height);
-  layer.runtime.auxCtx.putImageData(sourceBuffer.imageData, 0, 0);
-
-  if (!analysis.previousFrame) {
-    layer.runtime.ctx.clearRect(0, 0, analysis.width, analysis.height);
-    layer.runtime.ctx.putImageData(sourceBuffer.imageData, 0, 0);
-    finishLayerTrail(layer);
-    return;
-  }
-
-  const mask = buildMotionThresholdMask(analysis, { threshold: 0.14 });
-  const centroid = computeCentroid(mask, analysis.width, analysis.height);
-  const feedback = clamp(layer.params.feedback ?? 0.82, 0.1, 0.99);
-  const zoom = 1 + clamp(layer.params.zoom ?? 0.22, 0, 1) * 0.032;
-  const sourceMix = clamp(layer.params.sourceMix ?? 0.72, 0.02, 1);
-  const drift = clamp(layer.params.drift ?? 0.24, 0, 1);
-  const driftX = centroid
-    ? ((centroid.x - analysis.width * 0.5) / analysis.width) * (8 + drift * 20)
-    : Math.sin(elapsed * (0.8 + drift)) * drift * 4;
-  const driftY = centroid
-    ? ((centroid.y - analysis.height * 0.5) / analysis.height) * (8 + drift * 20)
-    : Math.cos(elapsed * (1 + drift * 0.7)) * drift * 3;
-
-  const ctx = layer.runtime.ctx;
-  ctx.clearRect(0, 0, analysis.width, analysis.height);
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, analysis.width, analysis.height);
-
-  ctx.save();
-  ctx.globalAlpha = 0.24 + feedback * 0.72;
-  ctx.translate(analysis.width * 0.5 + driftX, analysis.height * 0.5 + driftY);
-  ctx.scale(zoom, zoom);
-  ctx.translate(-analysis.width * 0.5, -analysis.height * 0.5);
-  ctx.drawImage(layer.runtime.ghostCanvas, 0, 0);
-  ctx.restore();
-
-  ctx.save();
-  ctx.globalCompositeOperation = "screen";
-  ctx.globalAlpha = 0.28 + sourceMix * 0.68;
-  ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
-  ctx.restore();
-
-  finishLayerTrail(layer);
-}
-
 function renderEdgeGlowLayer(layer, analysis) {
   // Edge Glow darkens the source image and then screens a softened edge buffer over the top so
   // contours pop like a neon-outline pass.
@@ -1998,10 +2757,10 @@ function renderEdgeGlowLayer(layer, analysis) {
   const baseBuffer = ensureImageBuffer(state, "edge-glow-base", analysis.width, analysis.height);
   const edgeBuffer = ensureImageBuffer(state, "edge-glow-edges", analysis.width, analysis.height);
   const edge = ensureFrameDerivatives(analysis.currentFrame).edge;
-  const threshold = 10 + clamp(layer.params.threshold ?? 0.12, 0, 1) * 120;
-  const darkness = clamp(layer.params.darkness ?? 0.4, 0, 1);
-  const glow = clamp(layer.params.glow ?? 0.82, 0, 1);
-  const baseScale = 1 - darkness * 0.82;
+  const threshold = 4 + clamp(layer.params.threshold ?? 0.08, 0, 1) * 88;
+  const darkness = clamp(layer.params.darkness ?? 0.28, 0, 1);
+  const glow = clamp(layer.params.glow ?? 0.92, 0, 1);
+  const baseScale = 1 - darkness * 0.54;
 
   for (let index = 0, px = 0; index < analysis.pixels; index += 1, px += 4) {
     baseBuffer.data[px] = clamp(Math.round(analysis.data[px] * baseScale), 0, 255);
@@ -2009,17 +2768,19 @@ function renderEdgeGlowLayer(layer, analysis) {
     baseBuffer.data[px + 2] = clamp(Math.round(analysis.data[px + 2] * baseScale), 0, 255);
     baseBuffer.data[px + 3] = 255;
 
-    const intensity = clamp((edge[index] - threshold) / Math.max(1, 255 - threshold), 0, 1);
-    if (intensity <= 0.001) {
+    const contrastBoost = clamp(analysis.colorDiff[index] / 255, 0, 1);
+    const edgeLift = clamp((edge[index] - threshold) / Math.max(1, 172 - threshold), 0, 1);
+    const intensity = clamp(Math.pow(edgeLift, 0.58) + contrastBoost * 0.22, 0, 1);
+    if (intensity <= 0.002) {
       edgeBuffer.data[px + 3] = 0;
       continue;
     }
 
-    const neon = mixRgb(color, { r: 255, g: 255, b: 255 }, 0.35 + intensity * 0.45);
+    const neon = mixRgb(color, { r: 255, g: 255, b: 255 }, 0.52 + intensity * 0.34);
     edgeBuffer.data[px] = neon.r;
     edgeBuffer.data[px + 1] = neon.g;
     edgeBuffer.data[px + 2] = neon.b;
-    edgeBuffer.data[px + 3] = Math.round(Math.pow(intensity, 0.78) * 255);
+    edgeBuffer.data[px + 3] = Math.round(clamp(0.08 + intensity * (0.78 + glow * 0.28), 0, 1) * 255);
   }
 
   const ctx = layer.runtime.ctx;
@@ -2030,19 +2791,20 @@ function renderEdgeGlowLayer(layer, analysis) {
 
   ctx.clearRect(0, 0, analysis.width, analysis.height);
   ctx.save();
-  ctx.globalAlpha = 0.28 + (1 - darkness) * 0.44;
+  ctx.globalAlpha = 0.42 + (1 - darkness) * 0.32;
   ctx.drawImage(layer.runtime.bufferCanvas, 0, 0);
   ctx.restore();
 
   ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
   ctx.globalCompositeOperation = "screen";
-  ctx.globalAlpha = 0.95;
+  ctx.globalAlpha = 0.34 + glow * 0.46;
+  ctx.filter = `blur(${2.2 + glow * 5.8}px)`;
   ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
-  ctx.globalAlpha = 0.2 + glow * 0.34;
-  ctx.filter = `blur(${1.2 + glow * 4.2}px)`;
-  ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
-  ctx.globalAlpha = 0.08 + glow * 0.14;
-  ctx.filter = `blur(${3 + glow * 8}px)`;
+  ctx.globalAlpha = 0.16 + glow * 0.28;
+  ctx.filter = `blur(${7 + glow * 11}px)`;
   ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
   ctx.filter = "none";
   ctx.restore();
@@ -2054,130 +2816,34 @@ function renderFilmGrainLayer(layer, analysis, elapsed = 0) {
   // more like a textured print or scanned stock than a flat digital overlay.
   const state = ensureLayerState(layer, analysis.width, analysis.height);
   const buffer = ensureImageBuffer(state, "film-grain", analysis.width, analysis.height);
-  const amount = clamp(layer.params.amount ?? 0.42, 0, 1);
-  const contrast = 1 + clamp(layer.params.contrast ?? 0.3, 0, 1) * 1.45;
-  const grainSize = Math.max(1, layer.params.grainSize ?? 1.4);
-  const speed = clamp(layer.params.speed ?? 0.62, 0.05, 1);
-  const timeSeed = Math.floor(elapsed * (12 + speed * 54));
+  const amount = clamp(layer.params.amount ?? 0.38, 0, 1);
+  const contrast = 1 + clamp(layer.params.contrast ?? 0.18, 0, 1) * 1.15;
+  const grainSize = Math.max(1, layer.params.grainSize ?? 1.2);
+  const speed = clamp(layer.params.speed ?? 0.68, 0.05, 1);
+  const grainScale = 0.7 / (0.8 + grainSize * 0.7);
+  const time = elapsed * (0.8 + speed * 3.4);
 
   for (let y = 0; y < analysis.height; y += 1) {
-    const cellY = Math.floor(y / grainSize);
     const row = y * analysis.width;
     for (let x = 0; x < analysis.width; x += 1) {
       const index = row + x;
       const px = index * 4;
-      const cellX = Math.floor(x / grainSize);
-      const monoNoise = hashUnit3(cellX, cellY, timeSeed) * 2 - 1;
-      const channelNoiseR = hashUnit3(cellX + 13, cellY, timeSeed + 5) * 2 - 1;
-      const channelNoiseB = hashUnit3(cellX, cellY + 11, timeSeed + 9) * 2 - 1;
-      const midtone = 0.45 + (1 - Math.abs(analysis.luma[index] - 128) / 128) * 0.55;
-      const grain = monoNoise * (6 + amount * 44) * midtone;
-      const colorDrift = amount * 10;
+      const tone = analysis.luma[index] / 255;
+      const response = clamp(0.24 + (1 - Math.abs(tone - 0.42) * 1.55), 0.18, 1.06);
+      const monoNoise = sampleFilmNoise(x, y, time, grainScale, 91);
+      const clumpNoise = sampleFilmNoise(x, y, time * 0.62, grainScale * 0.45, 173);
+      const chromaNoiseR = sampleFilmNoise(x + 7.3, y - 2.9, time * 1.18, grainScale * 1.22, 227);
+      const chromaNoiseB = sampleFilmNoise(x - 5.1, y + 9.7, time * 1.06, grainScale * 1.28, 317);
+      const grain = (monoNoise * 0.76 + clumpNoise * 0.24) * (4 + amount * 24) * response;
+      const colorDrift = amount * 3.8 * response;
       const baseR = (analysis.data[px] - 128) * contrast + 128;
       const baseG = (analysis.data[px + 1] - 128) * contrast + 128;
       const baseB = (analysis.data[px + 2] - 128) * contrast + 128;
 
-      buffer.data[px] = clamp(Math.round(baseR + grain + channelNoiseR * colorDrift), 0, 255);
-      buffer.data[px + 1] = clamp(Math.round(baseG + grain * 0.95), 0, 255);
-      buffer.data[px + 2] = clamp(Math.round(baseB + grain + channelNoiseB * colorDrift), 0, 255);
+      buffer.data[px] = clamp(Math.round(baseR + grain + chromaNoiseR * colorDrift), 0, 255);
+      buffer.data[px + 1] = clamp(Math.round(baseG + grain * 0.94), 0, 255);
+      buffer.data[px + 2] = clamp(Math.round(baseB + grain + chromaNoiseB * colorDrift), 0, 255);
       buffer.data[px + 3] = 255;
-    }
-  }
-
-  layer.runtime.ctx.clearRect(0, 0, analysis.width, analysis.height);
-  layer.runtime.ctx.putImageData(buffer.imageData, 0, 0);
-  finishLayerTrail(layer);
-}
-
-function renderVoronoiShadingLayer(layer, analysis) {
-  // Voronoi Shade converts detected features into chunky cells, then shades each cell from the
-  // sampled source color for a procedural posterized mosaic look.
-  const state = ensureLayerState(layer, analysis.width, analysis.height);
-  const buffer = ensureImageBuffer(state, "voronoi-shading", analysis.width, analysis.height);
-  const accent = getEffectColor(layer);
-  const pointCount = Math.round(layer.params.pointCount || 24);
-  const cellSize = Math.max(4, Math.round(layer.params.cellSize || 10));
-  const posterize = clamp(layer.params.posterize ?? 0.52, 0, 1);
-  const levels = Math.max(2, Math.round(2 + posterize * 6));
-  const seedDetail = clamp(1 - (cellSize - 4) / 18, 0.18, 0.9);
-  const seeds = detectFastKeypoints(analysis.currentFrame, null, {
-    count: pointCount,
-    threshold: 0.12,
-    detail: seedDetail,
-  }).slice(0, pointCount);
-
-  if (seeds.length < pointCount) {
-    const gridColumns = Math.max(2, Math.round(Math.sqrt(pointCount * analysis.width / Math.max(1, analysis.height))));
-    const gridRows = Math.max(2, Math.ceil(pointCount / gridColumns));
-    for (let row = 0; row < gridRows && seeds.length < pointCount; row += 1) {
-      for (let column = 0; column < gridColumns && seeds.length < pointCount; column += 1) {
-        const x = Math.round(((column + 0.5) / gridColumns) * (analysis.width - 1));
-        const y = Math.round(((row + 0.5) / gridRows) * (analysis.height - 1));
-        seeds.push({ x, y, score: 0 });
-      }
-    }
-  }
-
-  if (!seeds.length) {
-    buffer.data.set(analysis.data);
-    layer.runtime.ctx.clearRect(0, 0, analysis.width, analysis.height);
-    layer.runtime.ctx.putImageData(buffer.imageData, 0, 0);
-    finishLayerTrail(layer);
-    return;
-  }
-
-  const enrichedSeeds = seeds.map((seed) => {
-    const px = getPixelOffset(analysis.width, analysis.height, seed.x, seed.y);
-    return {
-      x: seed.x,
-      y: seed.y,
-      r: analysis.data[px],
-      g: analysis.data[px + 1],
-      b: analysis.data[px + 2],
-      luma: analysis.luma[(Math.round(seed.y) * analysis.width) + Math.round(seed.x)] / 255,
-    };
-  });
-
-  for (let blockY = 0; blockY < analysis.height; blockY += cellSize) {
-    for (let blockX = 0; blockX < analysis.width; blockX += cellSize) {
-      const centerX = Math.min(analysis.width - 1, blockX + cellSize * 0.5);
-      const centerY = Math.min(analysis.height - 1, blockY + cellSize * 0.5);
-      let bestSeed = enrichedSeeds[0];
-      let bestDistance = Number.POSITIVE_INFINITY;
-      let secondDistance = Number.POSITIVE_INFINITY;
-
-      enrichedSeeds.forEach((seed) => {
-        const dist = (seed.x - centerX) * (seed.x - centerX) + (seed.y - centerY) * (seed.y - centerY);
-        if (dist < bestDistance) {
-          secondDistance = bestDistance;
-          bestDistance = dist;
-          bestSeed = seed;
-        } else if (dist < secondDistance) {
-          secondDistance = dist;
-        }
-      });
-
-      const edgeFactor = clamp(1 - (Math.sqrt(secondDistance) - Math.sqrt(bestDistance)) / Math.max(1, cellSize * 0.95), 0, 1);
-      const shade = 0.68 + bestSeed.luma * 0.38;
-      const baseColor = {
-        r: quantizeChannel(bestSeed.r * shade, levels),
-        g: quantizeChannel(bestSeed.g * shade, levels),
-        b: quantizeChannel(bestSeed.b * shade, levels),
-      };
-      const finalColor = mixRgb(baseColor, accent, edgeFactor * 0.36);
-      const maxY = Math.min(analysis.height, blockY + cellSize);
-      const maxX = Math.min(analysis.width, blockX + cellSize);
-
-      for (let y = blockY; y < maxY; y += 1) {
-        const row = y * analysis.width;
-        for (let x = blockX; x < maxX; x += 1) {
-          const px = (row + x) * 4;
-          buffer.data[px] = finalColor.r;
-          buffer.data[px + 1] = finalColor.g;
-          buffer.data[px + 2] = finalColor.b;
-          buffer.data[px + 3] = 255;
-        }
-      }
     }
   }
 
@@ -2351,6 +3017,7 @@ function renderTrackBoxesLayer(layer, analysis, preset, style = "boxes") {
   // Blob Tracker and Bounding Boxes share this renderer: one draws elliptical blobs, the other
   // draws cleaner rectangles, but both use the same motion components and smoothed track trails.
   const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const showTrails = layer.params.showTrails !== false;
   const mask = buildDensityMask(analysis, layer.params);
   const detections = buildTrackerDetections(analysis, mask, layer.params, preset, {
     cacheKey: `${style}-tracks`,
@@ -2363,13 +3030,13 @@ function renderTrackBoxesLayer(layer, analysis, preset, style = "boxes") {
   });
   const color = getEffectColor(layer);
 
-  beginLayerTrail(layer, layer.params.trail ?? 0.24, "screen");
+  beginLayerTrail(layer, showTrails ? (layer.params.trail ?? 0.24) : 0, "screen");
   const ctx = layer.runtime.ctx;
   ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.shadowColor = rgba(color, 0.24);
-  ctx.shadowBlur = 10;
+  ctx.shadowColor = showTrails ? rgba(color, 0.24) : "rgba(0, 0, 0, 0)";
+  ctx.shadowBlur = showTrails ? 10 : 0;
 
   tracks.forEach((track) => {
     if (track.missed > 2) {
@@ -2377,25 +3044,783 @@ function renderTrackBoxesLayer(layer, analysis, preset, style = "boxes") {
     }
 
     if (style === "blob") {
-      drawTrail(ctx, track.trail, color, 1.6, 0.42);
-      ctx.fillStyle = rgba(color, 0.16);
-      ctx.strokeStyle = rgba(color, 0.82);
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.ellipse(track.x, track.y, track.width * 0.34, track.height * 0.34, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      drawCrosshair(ctx, track.x, track.y, 4, color, 0.82);
+      if (showTrails) {
+        drawTrail(ctx, track.trail, color, 1.6, 0.42);
+      }
+      drawTargetReticle(ctx, track.x, track.y, Math.max(track.width, track.height) * 0.36, color, 0.88);
       return;
     }
 
-    drawTrail(ctx, track.trail, color, 1.1, 0.28);
+    if (showTrails) {
+      drawTrail(ctx, track.trail, color, 1.1, 0.28);
+    }
     ctx.strokeStyle = rgba(color, 0.88);
     ctx.lineWidth = 1.4;
-    ctx.strokeRect(track.x - track.width * 0.5, track.y - track.height * 0.5, track.width, track.height);
+    const left = track.x - track.width * 0.5;
+    const top = track.y - track.height * 0.5;
+    const right = left + track.width;
+    const bottom = top + track.height;
+    ctx.strokeRect(left, top, track.width, track.height);
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(right, bottom);
+    ctx.moveTo(right, top);
+    ctx.lineTo(left, bottom);
+    ctx.stroke();
   });
 
   ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderTonalIsolationLayer(layer, analysis, mode = "highlights") {
+  // These tone-isolation layers mimic the highlight/midtone/shadow webcam masks by filtering the
+  // frame down to one tonal band and returning only those source pixels on black.
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const buffer = ensureImageBuffer(state, `${mode}-tone-mask`, analysis.width, analysis.height);
+  const mask = buildTonalIsolationMask(analysis, layer.params, mode);
+  writeMaskedSourceToBuffer(buffer, analysis, mask);
+  layer.runtime.ctx.clearRect(0, 0, analysis.width, analysis.height);
+  layer.runtime.ctx.putImageData(buffer.imageData, 0, 0);
+  finishLayerTrail(layer);
+}
+
+function renderCrtTintFilterLayer(layer, analysis, elapsed = 0) {
+  // These RGB CRT filters are full-frame treatments: they crush the source into a harsh
+  // monochrome phosphor pass, then layer in a fine slot-mask/grid so the image feels like it is
+  // being viewed through a colored monitor instead of a flat tint overlay.
+  const profile = CRT_FILTER_PROFILES[layer.type] || CRT_FILTER_PROFILES.greenCrt;
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const displayBuffer = ensureImageBuffer(state, `${layer.type}-crt-display`, analysis.width, analysis.height);
+  const glowBuffer = ensureImageBuffer(state, `${layer.type}-crt-glow`, analysis.width, analysis.height);
+  const intensity = clamp(layer.params.intensity ?? 0, 0, 5);
+  const contrast = clamp(layer.params.contrast ?? 0, 0, 5);
+  const grid = clamp(layer.params.grid ?? 1, 0, 5);
+  const glow = clamp(layer.params.glow ?? 1, 0, 5);
+  const contrastGain = 1 + contrast * 1.6;
+  const intensityGain = intensity / 5;
+  const gridStrength = grid;
+  const glowStrength = glow;
+  const flicker = 0.988 + Math.sin(elapsed * 15.2) * (0.01 + glowStrength * 0.002);
+
+  for (let y = 0; y < analysis.height; y += 1) {
+    const row = y * analysis.width;
+    const scanMask = y % 3 === 0 ? clamp(1 - gridStrength * 0.045, 0.58, 1) : 1;
+    const rowGrid = y % 6 === 0 ? clamp(1 - gridStrength * 0.026, 0.68, 1) : 1;
+    const slotLine = y % 9 === 0 ? clamp(1 - gridStrength * 0.016, 0.78, 1) : 1;
+
+    for (let x = 0; x < analysis.width; x += 1) {
+      const index = row + x;
+      const px = index * 4;
+      const tone = analysis.luma[index] / 255;
+      const sourcePeak = Math.max(analysis.data[px], analysis.data[px + 1], analysis.data[px + 2]) / 255;
+      const contrastTone = clamp((tone - 0.5) * contrastGain + 0.5, 0, 1);
+      const beam = clamp(
+        Math.pow(contrastTone, clamp(0.72 - intensityGain * 0.48, 0.18, 1.1))
+          * (0.78 + intensityGain * 1.8)
+          + sourcePeak * (0.16 + intensityGain * 0.42),
+        0,
+        1,
+      );
+      const stripe = profile.stripe[x % 3];
+      const columnGrid = x % 4 === 0
+        ? clamp(1 - gridStrength * 0.09, 0.34, 1)
+        : x % 4 === 3
+          ? clamp(1 - gridStrength * 0.02, 0.8, 1)
+          : 1;
+      const microGrid = x % 9 === 0 ? clamp(1 - gridStrength * 0.03, 0.62, 1) : 1;
+      const mask = stripe * columnGrid * microGrid * scanMask * rowGrid * slotLine * flicker;
+      const drive = clamp(beam * mask, 0, 1);
+      const tint = mixRgb(profile.base, profile.highlight, Math.pow(beam, 0.82) * (0.6 + intensityGain * 0.28));
+      const shadowLift = 0.02 + beam * (0.08 + glowStrength * 0.008);
+
+      displayBuffer.data[px] = clamp(Math.round(profile.shadow.r * shadowLift + tint.r * drive), 0, 255);
+      displayBuffer.data[px + 1] = clamp(Math.round(profile.shadow.g * shadowLift + tint.g * drive), 0, 255);
+      displayBuffer.data[px + 2] = clamp(Math.round(profile.shadow.b * shadowLift + tint.b * drive), 0, 255);
+      displayBuffer.data[px + 3] = 255;
+
+      const bloom = Math.pow(clamp((beam - (0.64 - intensityGain * 0.18)) / 0.42, 0, 1), 1.35);
+      glowBuffer.data[px] = tint.r;
+      glowBuffer.data[px + 1] = tint.g;
+      glowBuffer.data[px + 2] = tint.b;
+      glowBuffer.data[px + 3] = Math.round(clamp(bloom * (0.06 + glowStrength * 0.12), 0, 1) * 255);
+    }
+  }
+
+  const ctx = layer.runtime.ctx;
+  layer.runtime.bufferCtx.clearRect(0, 0, analysis.width, analysis.height);
+  layer.runtime.bufferCtx.putImageData(displayBuffer.imageData, 0, 0);
+  layer.runtime.auxCtx.clearRect(0, 0, analysis.width, analysis.height);
+  layer.runtime.auxCtx.putImageData(glowBuffer.imageData, 0, 0);
+
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+  ctx.drawImage(layer.runtime.bufferCanvas, 0, 0);
+
+  if (glowStrength > 0.001) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.globalAlpha = Math.min(0.72, 0.1 + glowStrength * 0.12);
+    ctx.filter = `blur(${0.6 + glowStrength * 1.7}px)`;
+    ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
+    if (glowStrength > 1.2) {
+      ctx.globalAlpha = Math.min(0.5, 0.08 + glowStrength * 0.06);
+      ctx.filter = `blur(${2 + glowStrength * 1.35}px)`;
+      ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
+    }
+    ctx.filter = "none";
+    ctx.restore();
+  }
+
+  finishLayerTrail(layer);
+}
+
+function renderNightVisionLayer(layer, analysis, elapsed = 0) {
+  // Night Vision mimics a phosphor tube pass by lifting dark detail, pushing it into a green
+  // palette, then layering in bloom, sensor noise, scanlines, and tube-style falloff.
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const displayBuffer = ensureImageBuffer(state, "night-vision-display", analysis.width, analysis.height);
+  const glowBuffer = ensureImageBuffer(state, "night-vision-glow", analysis.width, analysis.height);
+  const gain = clamp(layer.params.gain ?? 3.2, 0.4, 5);
+  const gamma = clamp(layer.params.gamma ?? 1.6, 0.4, 3);
+  const contrast = clamp(layer.params.contrast ?? 1.35, 0, 3);
+  const greenIntensity = clamp(layer.params.greenIntensity ?? 0.92, 0, 1);
+  const tintBalance = clamp(layer.params.tintBalance ?? 0.42, 0, 1);
+  const desaturation = clamp(layer.params.desaturation ?? 0.88, 0, 1);
+  const noiseAmount = clamp(layer.params.noiseAmount ?? 0.22, 0, 1);
+  const noiseSize = Math.max(0.5, layer.params.noiseSize ?? 1.2);
+  const noiseFlicker = clamp(layer.params.noiseFlicker ?? 0.72, 0, 2);
+  const bloom = clamp(layer.params.bloom ?? 0.38, 0, 1.5);
+  const bloomThreshold = clamp(layer.params.bloomThreshold ?? 0.64, 0.2, 1);
+  const vignetteStrength = clamp(layer.params.vignetteStrength ?? 0.4, 0, 1);
+  const vignetteRadius = clamp(layer.params.vignetteRadius ?? 0.72, 0.2, 1.2);
+  const sharpness = clamp(layer.params.sharpness ?? 0.28, 0, 1);
+  const edgeEnhance = clamp(layer.params.edgeEnhance ?? 0.24, 0, 1);
+  const scanlineIntensity = clamp(layer.params.scanlineIntensity ?? 0.16, 0, 1);
+  const scanlineSpacing = Math.max(1, Math.round(layer.params.scanlineSpacing ?? 3));
+  const scanlineSpeed = clamp(layer.params.scanlineSpeed ?? 0.18, 0, 1);
+  const hotspot = clamp(layer.params.hotspot ?? 0.34, 0, 1);
+  const hotspotFalloff = clamp(layer.params.hotspotFalloff ?? 0.62, 0.1, 1);
+  const deadPixels = clamp(layer.params.deadPixels ?? 0.08, 0, 1);
+  const sharpenLuma = ensureBlurredLuma(analysis, sharpness > 0.001 ? 1 : 0);
+  const bloomLuma = ensureBlurredLuma(analysis, bloom > 0.001 ? 1 + Math.round(bloom * 4) : 0);
+  const edge = ensureFrameDerivatives(analysis.currentFrame).edge;
+  const phosphor = hslToRgb(lerp(0.22, 0.42, tintBalance), 0.84, 0.56);
+  const highlight = mixRgb(phosphor, { r: 245, g: 255, b: 224 }, 0.5);
+  const shadow = { r: 2, g: 8, b: 2 };
+  const grainScale = 0.92 / (0.7 + noiseSize * 0.88);
+  const time = elapsed * (0.7 + noiseFlicker * 4.6);
+  const centerX = analysis.width * 0.5;
+  const centerY = analysis.height * 0.48;
+  const radiusPivot = 0.3 + vignetteRadius * 0.78;
+  const hotspotRadius = 0.18 + hotspotFalloff * 0.72;
+
+  for (let y = 0; y < analysis.height; y += 1) {
+    const row = y * analysis.width;
+    const normalizedY = (y + 0.5 - centerY) / (analysis.height * 0.5);
+    const scanWave = 0.5 + 0.5 * Math.cos((((y / scanlineSpacing) + elapsed * scanlineSpeed * 6) * Math.PI * 2));
+    const scanMask = 1 - scanlineIntensity * (0.1 + scanWave * 0.34);
+
+    for (let x = 0; x < analysis.width; x += 1) {
+      const index = row + x;
+      const px = index * 4;
+      const normalizedX = (x + 0.5 - centerX) / (analysis.width * 0.5);
+      const radial = Math.hypot(normalizedX / 1.02, normalizedY / 0.84);
+      const rawLuma = analysis.luma[index] / 255;
+      const avgSource = (analysis.data[px] + analysis.data[px + 1] + analysis.data[px + 2]) / 765;
+      const mono = lerp(avgSource, rawLuma, 0.35 + desaturation * 0.65);
+      const lifted = Math.pow(clamp(mono, 0, 1), 1 / gamma);
+      const exposed = lifted * gain;
+      const contrastTone = clamp((exposed - 0.5) * (1 + contrast * 1.8) + 0.5, 0, 1.9);
+      const sharpen = sharpness > 0.001 ? (rawLuma - sharpenLuma[index] / 255) * sharpness * 1.85 : 0;
+      const edgeBoost = (edge[index] / 255) * edgeEnhance * 0.34;
+      const vignette = 1 - vignetteStrength * Math.pow(clamp((radial - radiusPivot * 0.5) / (1.28 - radiusPivot * 0.18), 0, 1), 1.7);
+      const hotspotMask = Math.pow(clamp(1 - radial / hotspotRadius, 0, 1), 1.6 + (1 - hotspotFalloff) * 2.4);
+      const illumination = clamp(vignette + hotspot * hotspotMask * 0.78, 0.16, 1.5);
+      const noise = sampleFilmNoise(x, y, time, grainScale, 403) * noiseAmount * (0.08 + contrastTone * 0.2);
+      const beam = clamp((contrastTone + sharpen + edgeBoost + noise) * illumination * scanMask, 0, 2.2);
+      const tintMix = clamp(greenIntensity * (0.78 + beam * 0.12), 0, 1);
+      const monoByte = clamp(beam, 0, 1.3) * 255;
+      const tintedR = monoByte * lerp(1, phosphor.r / 255, tintMix);
+      const tintedG = monoByte * lerp(1, phosphor.g / 255, tintMix);
+      const tintedB = monoByte * lerp(1, phosphor.b / 255, tintMix);
+      const visibleMix = clamp(beam * 0.88, 0, 1);
+      let outR = lerp(shadow.r, tintedR, visibleMix);
+      let outG = lerp(shadow.g, tintedG, visibleMix);
+      let outB = lerp(shadow.b, tintedB, visibleMix);
+      const highlightMix = clamp((beam - 0.72) * 1.2, 0, 1);
+      outR = lerp(outR, highlight.r, highlightMix * 0.58);
+      outG = lerp(outG, highlight.g, highlightMix * 0.64);
+      outB = lerp(outB, highlight.b, highlightMix * 0.42);
+
+      displayBuffer.data[px] = clamp(Math.round(outR), 0, 255);
+      displayBuffer.data[px + 1] = clamp(Math.round(outG), 0, 255);
+      displayBuffer.data[px + 2] = clamp(Math.round(outB), 0, 255);
+      displayBuffer.data[px + 3] = 255;
+
+      const bloomSource = bloomLuma[index] / 255;
+      const bloomResponse = Math.pow(clamp((bloomSource * Math.min(gain, 2.4) - bloomThreshold) / Math.max(0.08, 1 - bloomThreshold), 0, 1), 1.2);
+      glowBuffer.data[px] = highlight.r;
+      glowBuffer.data[px + 1] = highlight.g;
+      glowBuffer.data[px + 2] = highlight.b;
+      glowBuffer.data[px + 3] = Math.round(clamp(bloomResponse * (0.04 + bloom * 0.18), 0, 1) * 255);
+    }
+  }
+
+  const ctx = layer.runtime.ctx;
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+  ctx.putImageData(displayBuffer.imageData, 0, 0);
+
+  if (bloom > 0.001) {
+    layer.runtime.auxCtx.clearRect(0, 0, analysis.width, analysis.height);
+    layer.runtime.auxCtx.putImageData(glowBuffer.imageData, 0, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.globalAlpha = Math.min(0.86, 0.08 + bloom * 0.16);
+    ctx.filter = `blur(${0.8 + bloom * 2.8}px)`;
+    ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
+    if (bloom > 0.45) {
+      ctx.globalAlpha = Math.min(0.42, 0.04 + bloom * 0.08);
+      ctx.filter = `blur(${2 + bloom * 4.6}px)`;
+      ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
+    }
+    ctx.filter = "none";
+    ctx.restore();
+  }
+
+  const stuckPixels = ensureDeadPixelField(state, analysis.width, analysis.height, deadPixels);
+  if (stuckPixels.length) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    stuckPixels.forEach((pixel, index) => {
+      const blink = 0.72 + Math.sin(elapsed * (1.3 + pixel.strength) + index * 0.9) * 0.18;
+      ctx.fillStyle = rgba(highlight, clamp(pixel.strength * blink, 0, 1));
+      ctx.fillRect(pixel.x, pixel.y, pixel.size, pixel.size);
+    });
+    ctx.restore();
+  }
+
+  finishLayerTrail(layer);
+}
+
+function renderVfxHalftoneLayer(layer, sourceImageData, requestPreviewRefresh) {
+  renderVfxCanvasShaderLayer({
+    layer,
+    sourceImageData,
+    shader: "halftone",
+    requestPreviewRefresh,
+  });
+  finishLayerTrail(layer);
+}
+
+function renderVfxDuotoneLayer(layer, sourceImageData, requestPreviewRefresh) {
+  const color1 = hslToRgb(
+    clamp(layer.params.color1Hue ?? 0.62, 0, 1),
+    clamp(layer.params.color1Saturation ?? 0.74, 0, 1),
+    clamp(layer.params.color1Lightness ?? 0.18, 0, 1),
+  );
+  const color2 = hslToRgb(
+    clamp(layer.params.color2Hue ?? 0.12, 0, 1),
+    clamp(layer.params.color2Saturation ?? 0.94, 0, 1),
+    clamp(layer.params.color2Lightness ?? 0.72, 0, 1),
+  );
+
+  renderVfxCanvasShaderLayer({
+    layer,
+    sourceImageData,
+    shader: "duotone",
+    requestPreviewRefresh,
+    uniforms: {
+      color1: () => [color1.r / 255, color1.g / 255, color1.b / 255, 1],
+      color2: () => [color2.r / 255, color2.g / 255, color2.b / 255, 1],
+      speed: () => clamp(layer.params.speed ?? 0.12, 0, 1),
+    },
+  });
+  finishLayerTrail(layer);
+}
+
+function renderPrismExtrudeLayer(layer, analysis, elapsed = 0) {
+  // Prism Extrude turns the source into stacked chromatic slabs so the frame feels like it has
+  // been pulled into a translucent neon sculpture.
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const sourceBuffer = ensureImageBuffer(state, "prism-extrude-source", analysis.width, analysis.height);
+  copyFrameToBuffer(sourceBuffer, analysis);
+  layer.runtime.bufferCtx.clearRect(0, 0, analysis.width, analysis.height);
+  layer.runtime.bufferCtx.putImageData(sourceBuffer.imageData, 0, 0);
+
+  const depth = clamp(layer.params.depth ?? 0.42, 0, 1);
+  const spread = clamp(layer.params.spread ?? 0.34, 0, 1);
+  const glow = clamp(layer.params.glow ?? 0.28, 0, 1);
+  const hue = wrapUnit(layer.params.hue ?? 0.82);
+  const passes = 5 + Math.round(depth * 7);
+  const ctx = layer.runtime.ctx;
+  const auxCtx = layer.runtime.auxCtx;
+
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+  ctx.fillStyle = "rgb(7, 4, 18)";
+  ctx.fillRect(0, 0, analysis.width, analysis.height);
+
+  for (let pass = passes; pass >= 0; pass -= 1) {
+    const t = pass / Math.max(1, passes);
+    const offset = 4 + t * (18 + spread * 52 + glow * 14);
+    const angle = hue * Math.PI * 2 + t * 1.18 + elapsed * 0.2;
+    const dx = Math.cos(angle) * offset;
+    const dy = Math.sin(angle * 1.36 - 0.6) * offset * 0.34 - t * t * (6 + depth * 10);
+    const scale = 1 + t * (0.02 + depth * 0.08);
+    const dw = analysis.width * scale;
+    const dh = analysis.height * scale;
+    const drawX = (analysis.width - dw) * 0.5 + dx;
+    const drawY = (analysis.height - dh) * 0.5 + dy;
+    const tint = hslToRgb(wrapUnit(hue + 0.05 + t * 0.14), 0.94, 0.64);
+
+    auxCtx.save();
+    auxCtx.clearRect(0, 0, analysis.width, analysis.height);
+    auxCtx.drawImage(layer.runtime.bufferCanvas, 0, 0);
+    auxCtx.globalCompositeOperation = "source-atop";
+    auxCtx.fillStyle = rgba(tint, 0.92);
+    auxCtx.fillRect(0, 0, analysis.width, analysis.height);
+    auxCtx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.08 + t * (0.16 + glow * 0.14);
+    ctx.filter = `blur(${0.15 + glow * 4.6 * t}px)`;
+    ctx.drawImage(layer.runtime.auxCanvas, drawX, drawY, dw, dh);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.drawImage(layer.runtime.bufferCanvas, 0, 0);
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = 0.04 + glow * 0.08;
+  for (let x = 0; x < analysis.width; x += 24) {
+    ctx.fillStyle = x % 48 === 0 ? "rgba(255, 255, 255, 0.22)" : "rgba(255, 255, 255, 0.08)";
+    ctx.fillRect(x, 0, 1, analysis.height);
+  }
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderDiamondPulseLayer(layer, analysis, preset, elapsed = 0) {
+  // Diamond Pulse anchors rotating neon diamonds to motion clusters so subjects feel like they are
+  // pushing luminous geometric markers through the frame.
+  const { tracks } = collectStylizedMotionTracks(layer, analysis, preset, {
+    cacheKey: "diamond-pulse",
+    trailLength: 24,
+    smoothing: 0.34,
+  });
+  const baseHue = clamp(layer.params.hue ?? 0.88, 0, 1);
+  const sizeScale = Math.max(0.3, layer.params.size ?? 0.72);
+  const pulse = clamp(layer.params.pulse ?? 0.42, 0, 1);
+  const trail = clamp(layer.params.trail ?? 0.24, 0, 1);
+
+  beginLayerTrail(layer, trail, "screen");
+  const ctx = layer.runtime.ctx;
+  ctx.save();
+  ctx.lineWidth = 1.3;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  tracks.forEach((track) => {
+    if (track.missed > 2) {
+      return;
+    }
+    drawTrail(ctx, track.trail, resolveMotionTrackingColor(layer, baseHue), 1.2, 0.22 + trail * 0.3);
+    const color = hslToRgb(wrapUnit(baseHue + track.id * 0.07), 0.92, 0.68);
+    const outer = Math.max(track.width, track.height) * (0.38 + sizeScale * 0.72);
+    const beat = 0.82 + Math.sin(elapsed * (2.6 + pulse * 3.8) + track.id * 0.8) * (0.12 + pulse * 0.16);
+    const rotation = elapsed * (0.5 + pulse * 1.9) + track.id * 0.27;
+    ctx.shadowColor = rgba(color, 0.36);
+    ctx.shadowBlur = 8 + pulse * 14;
+    drawDiamond(ctx, track.x, track.y, outer * beat, outer * beat * 0.78, color, 0.94, rotation, 0.06);
+    drawDiamond(
+      ctx,
+      track.x,
+      track.y,
+      outer * 0.56 * beat,
+      outer * 0.56 * beat * 0.78,
+      mixRgb(color, { r: 255, g: 255, b: 255 }, 0.4),
+      0.82,
+      -rotation * 1.35,
+      0,
+    );
+    drawCrosshair(ctx, track.x, track.y, 4 + sizeScale * 2, color, 0.84);
+  });
+
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderOrbitRingsLayer(layer, analysis, preset, elapsed = 0) {
+  // Orbit Rings wraps each tracked cluster in radar-style circles, sweep arcs, and orbiting nodes
+  // so motion feels like it is being scanned by a live sci-fi targeting rig.
+  const { tracks } = collectStylizedMotionTracks(layer, analysis, preset, {
+    cacheKey: "orbit-rings",
+    trailLength: 18,
+    smoothing: 0.42,
+  });
+  const baseHue = clamp(layer.params.hue ?? 0.16, 0, 1);
+  const radiusScale = Math.max(0.2, layer.params.radius ?? 0.72);
+  const sweep = clamp(layer.params.sweep ?? 0.46, 0, 1);
+  const trail = clamp(layer.params.trail ?? 0.18, 0, 1);
+
+  beginLayerTrail(layer, trail, "screen");
+  const ctx = layer.runtime.ctx;
+  ctx.save();
+  ctx.lineWidth = 1.2;
+
+  tracks.forEach((track) => {
+    if (track.missed > 2) {
+      return;
+    }
+
+    const color = hslToRgb(wrapUnit(baseHue + track.id * 0.05), 0.9, 0.68);
+    const radius = Math.max(track.width, track.height) * (0.32 + radiusScale * 0.76);
+    const sweepAngle = elapsed * (1.3 + sweep * 3.4) + track.id * 0.63;
+    drawTrail(ctx, track.trail, color, 1, 0.18 + trail * 0.32);
+
+    ctx.save();
+    ctx.strokeStyle = rgba(color, 0.74);
+    ctx.shadowColor = rgba(color, 0.3);
+    ctx.shadowBlur = 7 + sweep * 10;
+    ctx.setLineDash([8 + sweep * 10, 5 + sweep * 8]);
+    ctx.beginPath();
+    ctx.arc(track.x, track.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(track.x, track.y, radius * 0.58, sweepAngle - 0.65, sweepAngle + 0.48);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(track.x, track.y);
+    ctx.lineTo(track.x + Math.cos(sweepAngle) * radius, track.y + Math.sin(sweepAngle) * radius);
+    ctx.stroke();
+    ctx.restore();
+
+    for (let orbit = 0; orbit < 3; orbit += 1) {
+      const orbitAngle = sweepAngle * (0.68 + orbit * 0.18) + orbit * 2.1;
+      const orbitRadius = radius * (0.48 + orbit * 0.2);
+      const dotColor = mixRgb(color, { r: 255, g: 255, b: 255 }, 0.38 + orbit * 0.12);
+      ctx.fillStyle = rgba(dotColor, 0.84);
+      ctx.beginPath();
+      ctx.arc(
+        track.x + Math.cos(orbitAngle) * orbitRadius,
+        track.y + Math.sin(orbitAngle) * orbitRadius,
+        1.8 + orbit * 0.7,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+  });
+
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderWarpMeshLayer(layer, analysis, preset, elapsed = 0) {
+  // Warp Mesh links nearby trackers with noisy curves so moving subjects become a reactive,
+  // stretched wireframe that breathes as detections drift.
+  const { tracks } = collectStylizedMotionTracks(layer, analysis, preset, {
+    cacheKey: "warp-mesh",
+    trailLength: 16,
+    smoothing: 0.36,
+  });
+  const baseHue = clamp(layer.params.hue ?? 0.13, 0, 1);
+  const warp = clamp(layer.params.warp ?? 0.38, 0, 1);
+  const links = clamp(layer.params.links ?? 0.52, 0, 1);
+  const trail = clamp(layer.params.trail ?? 0.22, 0, 1);
+  const maxLinks = 1 + Math.round(links * 2);
+
+  beginLayerTrail(layer, trail, "screen");
+  const ctx = layer.runtime.ctx;
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  tracks.forEach((track) => {
+    if (track.missed > 2) {
+      return;
+    }
+    const color = hslToRgb(wrapUnit(baseHue + track.id * 0.035), 0.88, 0.66);
+    drawTrail(ctx, track.trail, color, 1, 0.16 + trail * 0.26);
+  });
+
+  const pairs = [];
+  tracks.forEach((track) => {
+    const nearest = tracks
+      .filter((other) => other !== track && other.missed <= 2)
+      .map((other) => ({ other, dist: distance(track.x, track.y, other.x, other.y) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, maxLinks);
+
+    nearest.forEach(({ other, dist }) => {
+      if (track.id < other.id) {
+        pairs.push({ a: track, b: other, dist });
+      }
+    });
+  });
+
+  pairs.forEach(({ a, b, dist }, pairIndex) => {
+    const hue = wrapUnit(baseHue + pairIndex * 0.018);
+    const color = hslToRgb(hue, 0.92, 0.68);
+    const midX = (a.x + b.x) * 0.5;
+    const midY = (a.y + b.y) * 0.5;
+    const invDistance = dist > 0.001 ? 1 / dist : 0;
+    const perpX = -(b.y - a.y) * invDistance;
+    const perpY = (b.x - a.x) * invDistance;
+    const wobble = (sampleValueNoise(pairIndex * 0.41 + elapsed * 0.8, hue * 13, 53) - 0.5) * (10 + warp * dist * 0.28);
+    const ctrlX = midX + perpX * wobble;
+    const ctrlY = midY + perpY * wobble;
+
+    ctx.save();
+    ctx.strokeStyle = rgba(color, 0.34 + links * 0.22);
+    ctx.lineWidth = 1 + links * 1.2;
+    ctx.shadowColor = rgba(color, 0.24);
+    ctx.shadowBlur = 6 + warp * 10;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(ctrlX, ctrlY, b.x, b.y);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  tracks.forEach((track, index) => {
+    if (track.missed > 2) {
+      return;
+    }
+    const color = hslToRgb(wrapUnit(baseHue + index * 0.06), 0.9, 0.66);
+    drawSquareNode(ctx, track.x, track.y, 6 + Math.max(track.width, track.height) * 0.08, color, 0.84, elapsed * 0.35 + index * 0.2);
+  });
+
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderChromeReliefLayer(layer, analysis) {
+  // Chrome Relief turns edges into a beveled metal surface with a moving light cue, so the whole
+  // image reads like machined chrome instead of flat video.
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const buffer = ensureImageBuffer(state, "chrome-relief", analysis.width, analysis.height);
+  const highlightBuffer = ensureImageBuffer(state, "chrome-relief-highlight", analysis.width, analysis.height);
+  const { gradX, gradY, edge } = ensureFrameDerivatives(analysis.currentFrame);
+  const depth = clamp(layer.params.depth ?? 0.62, 0, 1);
+  const polish = clamp(layer.params.polish ?? 0.52, 0, 1);
+  const edgeAmount = clamp(layer.params.edge ?? 0.48, 0, 1);
+  const tint = clamp(layer.params.tint ?? 0.58, 0, 1);
+  const shadowColor = hslToRgb(wrapUnit(0.57 + tint * 0.16), 0.22, 0.12);
+  const midColor = hslToRgb(wrapUnit(0.56 + tint * 0.12), 0.12, 0.48);
+  const lightColor = hslToRgb(wrapUnit(0.54 + tint * 0.1), 0.24, 0.9);
+  const light = { x: -0.44, y: -0.58, z: 0.68 };
+
+  for (let index = 0, px = 0; index < analysis.pixels; index += 1, px += 4) {
+    let nx = -(gradX[index] / 255) * (0.8 + depth * 2.8);
+    let ny = -(gradY[index] / 255) * (0.8 + depth * 2.8);
+    let nz = 1;
+    const invLength = 1 / Math.hypot(nx, ny, nz);
+    nx *= invLength;
+    ny *= invLength;
+    nz *= invLength;
+
+    const lightDot = clamp(nx * light.x + ny * light.y + nz * light.z, -1, 1);
+    const shade = clamp(0.5 + lightDot * 0.5, 0, 1);
+    const specular = Math.pow(clamp(shade, 0, 1), 4.2 - polish * 2.8) * (0.2 + polish * 0.78);
+    const rim = Math.pow(edge[index] / 255, 0.82) * edgeAmount * 0.82;
+    const baseTone = analysis.luma[index] / 255;
+    const metal = clamp(shade * 0.72 + specular + rim + (baseTone - 0.5) * 0.16, 0, 1);
+    const base = mixRgb(shadowColor, midColor, clamp(metal * 1.08, 0, 1));
+    const final = mixRgb(base, lightColor, clamp(specular * 0.82 + rim * 0.55, 0, 1));
+
+    buffer.data[px] = final.r;
+    buffer.data[px + 1] = final.g;
+    buffer.data[px + 2] = final.b;
+    buffer.data[px + 3] = 255;
+    highlightBuffer.data[px] = lightColor.r;
+    highlightBuffer.data[px + 1] = lightColor.g;
+    highlightBuffer.data[px + 2] = lightColor.b;
+    highlightBuffer.data[px + 3] = Math.round(clamp(specular * 0.78 + rim * 0.2, 0, 1) * 255);
+  }
+
+  const ctx = layer.runtime.ctx;
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+  ctx.putImageData(buffer.imageData, 0, 0);
+  layer.runtime.auxCtx.clearRect(0, 0, analysis.width, analysis.height);
+  layer.runtime.auxCtx.putImageData(highlightBuffer.imageData, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = 0.14 + polish * 0.18;
+  ctx.filter = `blur(${0.8 + polish * 3.4}px)`;
+  ctx.drawImage(layer.runtime.auxCanvas, 0, 0);
+  ctx.filter = "none";
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderTotemEchoLayer(layer, analysis, preset, elapsed = 0) {
+  // Totem Echo extrudes stacked tracker slabs along the motion direction so subjects feel like
+  // they are leaving sculpted neon monuments behind them.
+  const { tracks } = collectStylizedMotionTracks(layer, analysis, preset, {
+    cacheKey: "totem-echo",
+    trailLength: 22,
+    smoothing: 0.38,
+  });
+  const baseHue = clamp(layer.params.hue ?? 0.66, 0, 1);
+  const depth = clamp(layer.params.depth ?? 0.46, 0, 1);
+  const drift = clamp(layer.params.drift ?? 0.34, 0, 1);
+  const trail = clamp(layer.params.trail ?? 0.28, 0, 1);
+  const stackCount = 3 + Math.round(depth * 5);
+
+  beginLayerTrail(layer, trail, "screen");
+  const ctx = layer.runtime.ctx;
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  tracks.forEach((track, index) => {
+    if (track.missed > 2) {
+      return;
+    }
+    const color = hslToRgb(wrapUnit(baseHue + index * 0.04), 0.84, 0.68);
+    drawTrail(ctx, track.trail, color, 1.1, 0.22 + trail * 0.22);
+
+    const previous = track.trail[track.trail.length - 2] || track.trail[track.trail.length - 1] || { x: track.x, y: track.y };
+    const vx = track.x - previous.x;
+    const vy = track.y - previous.y;
+    const offsetXBase = vx * (2.4 + drift * 4.2) + (hashUnit3(track.id, index, 17) - 0.5) * (8 + drift * 16);
+    const offsetYBase = vy * (2.1 + drift * 3.6) + (hashUnit3(index, track.id, 19) - 0.5) * (6 + drift * 12);
+
+    for (let depthIndex = stackCount; depthIndex >= 0; depthIndex -= 1) {
+      const t = depthIndex / Math.max(1, stackCount);
+      const dx = offsetXBase * t * 0.34;
+      const dy = offsetYBase * t * 0.34 - t * (2 + depth * 9);
+      const w = track.width * (0.6 + depth * 0.24);
+      const h = track.height * (0.6 + depth * 0.24);
+      const tint = mixRgb(color, { r: 255, g: 255, b: 255 }, 0.22 + t * 0.3);
+      ctx.strokeStyle = rgba(tint, 0.18 + t * 0.42);
+      ctx.fillStyle = rgba(tint, 0.03 + t * 0.06);
+      ctx.lineWidth = 1 + t * 1.2;
+      ctx.shadowColor = rgba(color, 0.16 + t * 0.24);
+      ctx.shadowBlur = 4 + depth * 10;
+      ctx.strokeRect(track.x - w * 0.5 + dx, track.y - h * 0.5 + dy, w, h);
+      ctx.fillRect(track.x - w * 0.5 + dx, track.y - h * 0.5 + dy, w, h);
+    }
+
+    drawCrosshair(ctx, track.x, track.y, 4, color, 0.82);
+  });
+
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderScribbleAuraLayer(layer, analysis, preset, elapsed = 0) {
+  // Scribble Aura wraps each tracker in noisy hand-drawn contours so motion becomes a sketched,
+  // unstable halo instead of a literal box.
+  const { tracks } = collectStylizedMotionTracks(layer, analysis, preset, {
+    cacheKey: "scribble-aura",
+    trailLength: 20,
+    smoothing: 0.44,
+  });
+  const baseHue = clamp(layer.params.hue ?? 0.04, 0, 1);
+  const wobble = clamp(layer.params.wobble ?? 0.44, 0, 1);
+  const loops = clamp(layer.params.loops ?? 0.52, 0, 1);
+  const trail = clamp(layer.params.trail ?? 0.24, 0, 1);
+  const loopCount = 2 + Math.round(loops * 3);
+  const pointCount = 10 + Math.round(loops * 10);
+
+  beginLayerTrail(layer, trail, "screen");
+  const ctx = layer.runtime.ctx;
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+
+  tracks.forEach((track, index) => {
+    if (track.missed > 2) {
+      return;
+    }
+    const color = hslToRgb(wrapUnit(baseHue + index * 0.055), 0.88, 0.66);
+    drawTrail(ctx, track.trail, color, 1.1, 0.18 + trail * 0.26);
+
+    for (let loopIndex = 0; loopIndex < loopCount; loopIndex += 1) {
+      const expand = 1 + loopIndex * 0.16;
+      const points = buildTrackDistortedLoop({
+        ...track,
+        width: track.width * expand,
+        height: track.height * expand,
+      }, elapsed + loopIndex * 0.21, 0.12 + wobble * 0.74, pointCount);
+      ctx.lineWidth = 1 + loopIndex * 0.36;
+      ctx.shadowColor = rgba(color, 0.18 + loopIndex * 0.08);
+      ctx.shadowBlur = 4 + wobble * 8;
+      strokeClosedLoop(ctx, points, color, 0.52 - loopIndex * 0.08);
+    }
+
+    drawSquareNode(ctx, track.x, track.y, 5 + Math.max(track.width, track.height) * 0.05, color, 0.74, index * 0.2);
+  });
+
+  ctx.restore();
+  finishLayerTrail(layer);
+}
+
+function renderPaperStackLayer(layer, analysis) {
+  // Paper Stack posterizes the frame into offset cutout bands with shadows so the image feels
+  // like stacked collage cards floating in space.
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const offset = clamp(layer.params.offset ?? 0.36, 0, 1);
+  const poster = clamp(layer.params.poster ?? 0.52, 0, 1);
+  const shadow = clamp(layer.params.shadow ?? 0.48, 0, 1);
+  const hue = wrapUnit(layer.params.hue ?? 0.08);
+  const bandCount = 4;
+  const blurredLuma = ensureBlurredLuma(analysis, 1 + Math.round(poster * 5));
+  const contrast = 1 + poster * 2.4;
+  const background = hslToRgb(wrapUnit(hue - 0.04), 0.26, 0.1);
+  const ctx = layer.runtime.ctx;
+
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+  ctx.fillStyle = rgba(background, 1);
+  ctx.fillRect(0, 0, analysis.width, analysis.height);
+
+  for (let band = 0; band < bandCount; band += 1) {
+    const bandBuffer = ensureImageBuffer(state, `paper-stack-${band}`, analysis.width, analysis.height);
+    const low = band / bandCount;
+    const high = (band + 1) / bandCount;
+    const paletteBase = hslToRgb(wrapUnit(hue + band * 0.035), 0.52 + band * 0.08, 0.18 + band * 0.14);
+    const paperTint = mixRgb(paletteBase, { r: 250, g: 240, b: 228 }, 0.18 + band * 0.08);
+
+    for (let index = 0, px = 0; index < analysis.pixels; index += 1, px += 4) {
+      const tone = clamp((blurredLuma[index] / 255 - 0.5) * contrast + 0.5, 0, 1);
+      const inBand = tone >= low && (band === bandCount - 1 ? tone <= high : tone < high);
+      if (!inBand) {
+        bandBuffer.data[px] = 0;
+        bandBuffer.data[px + 1] = 0;
+        bandBuffer.data[px + 2] = 0;
+        bandBuffer.data[px + 3] = 0;
+        continue;
+      }
+
+      const sourceMix = 0.12 + band * 0.12;
+      bandBuffer.data[px] = Math.round(lerp(paperTint.r, analysis.data[px], sourceMix));
+      bandBuffer.data[px + 1] = Math.round(lerp(paperTint.g, analysis.data[px + 1], sourceMix));
+      bandBuffer.data[px + 2] = Math.round(lerp(paperTint.b, analysis.data[px + 2], sourceMix));
+      bandBuffer.data[px + 3] = 255;
+    }
+
+    layer.runtime.bufferCtx.clearRect(0, 0, analysis.width, analysis.height);
+    layer.runtime.bufferCtx.putImageData(bandBuffer.imageData, 0, 0);
+    const shift = band - (bandCount - 1) * 0.5;
+    const dx = shift * (1.4 + offset * 12);
+    const dy = shift * (-0.6 - offset * 7);
+
+    ctx.save();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.globalAlpha = 0.08 + shadow * 0.12 + band * 0.03;
+    ctx.filter = `blur(${0.6 + shadow * 5}px)`;
+    ctx.drawImage(layer.runtime.bufferCanvas, dx + 2 + shadow * 6, dy + 3 + shadow * 4);
+    ctx.restore();
+
+    ctx.save();
+    ctx.drawImage(layer.runtime.bufferCanvas, dx, dy);
+    ctx.restore();
+  }
+
   finishLayerTrail(layer);
 }
 
@@ -2471,6 +3896,7 @@ export function renderMotionVideoEffectLayer({
   elapsed,
   previousSourceImageData,
   getQualityPreset,
+  requestPreviewRefresh,
 }) {
   // The public dispatcher keeps the workspace generic: it builds shared frame analysis once and
   // routes each motion layer to the renderer that owns that specific effect type.
@@ -2486,11 +3912,6 @@ export function renderMotionVideoEffectLayer({
     return true;
   }
 
-  if (layer.type === "temporalAverage") {
-    renderTemporalAverageLayer(layer, analysis);
-    return true;
-  }
-
   if (layer.type === "motionThreshold") {
     renderMotionThresholdLayer(layer, analysis);
     return true;
@@ -2501,8 +3922,78 @@ export function renderMotionVideoEffectLayer({
     return true;
   }
 
-  if (layer.type === "feedbackTrails") {
-    renderFeedbackTrailsLayer(layer, analysis, elapsed);
+  if (layer.type === "vfxHalftone") {
+    renderVfxHalftoneLayer(layer, sourceImageData, requestPreviewRefresh);
+    return true;
+  }
+
+  if (layer.type === "vfxDuotone") {
+    renderVfxDuotoneLayer(layer, sourceImageData, requestPreviewRefresh);
+    return true;
+  }
+
+  if (layer.type === "greenCrt" || layer.type === "blueCrt" || layer.type === "redCrt") {
+    renderCrtTintFilterLayer(layer, analysis, elapsed);
+    return true;
+  }
+
+  if (layer.type === "nightVision") {
+    renderNightVisionLayer(layer, analysis, elapsed);
+    return true;
+  }
+
+  if (layer.type === "prismExtrude") {
+    renderPrismExtrudeLayer(layer, analysis, elapsed);
+    return true;
+  }
+
+  if (layer.type === "chromeRelief") {
+    renderChromeReliefLayer(layer, analysis);
+    return true;
+  }
+
+  if (layer.type === "diamondPulse") {
+    renderDiamondPulseLayer(layer, analysis, preset, elapsed);
+    return true;
+  }
+
+  if (layer.type === "orbitRings") {
+    renderOrbitRingsLayer(layer, analysis, preset, elapsed);
+    return true;
+  }
+
+  if (layer.type === "warpMesh") {
+    renderWarpMeshLayer(layer, analysis, preset, elapsed);
+    return true;
+  }
+
+  if (layer.type === "totemEcho") {
+    renderTotemEchoLayer(layer, analysis, preset, elapsed);
+    return true;
+  }
+
+  if (layer.type === "scribbleAura") {
+    renderScribbleAuraLayer(layer, analysis, preset, elapsed);
+    return true;
+  }
+
+  if (layer.type === "paperStack") {
+    renderPaperStackLayer(layer, analysis);
+    return true;
+  }
+
+  if (layer.type === "highlightsOnly") {
+    renderTonalIsolationLayer(layer, analysis, "highlights");
+    return true;
+  }
+
+  if (layer.type === "midtonesOnly") {
+    renderTonalIsolationLayer(layer, analysis, "midtones");
+    return true;
+  }
+
+  if (layer.type === "shadowsOnly") {
+    renderTonalIsolationLayer(layer, analysis, "shadows");
     return true;
   }
 
@@ -2513,11 +4004,6 @@ export function renderMotionVideoEffectLayer({
 
   if (layer.type === "filmGrain") {
     renderFilmGrainLayer(layer, analysis, elapsed);
-    return true;
-  }
-
-  if (layer.type === "voronoiShading") {
-    renderVoronoiShadingLayer(layer, analysis);
     return true;
   }
 

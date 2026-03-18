@@ -70,6 +70,24 @@ const BLEND_MODE_MAP = Object.freeze({
   exclusion: "exclusion",
   subtract: "subtract",
 });
+const RANDOM_BLEND_OPTIONS = Object.freeze([
+  "normal",
+  "screen",
+  "lighten",
+  "overlay",
+  "softLight",
+  "hardLight",
+  "add",
+  "difference",
+  "exclusion",
+]);
+const RANDOM_EFFECT_GROUP_RULES = Object.freeze({
+  color: Object.freeze({ min: 1, max: 3, label: "color effect" }),
+  tracking: Object.freeze({ min: 3, max: 4, label: "tracking effect" }),
+  particles: Object.freeze({ min: 0, max: 1, label: "particle tracker" }),
+});
+const PRESET_FILE_VERSION = 1;
+const PRESET_APP_ID = "motion-video-preset";
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -137,9 +155,9 @@ function drawSourceCover(source, targetCtx, dx, dy, dw, dh) {
   targetCtx.drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dw, dh);
 }
 
-function createLayerRuntime(width, height) {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { alpha: true });
+function createLayerRuntime(width, height, sharedFrameRuntime = null) {
+  const canvas = sharedFrameRuntime?.canvas || document.createElement("canvas");
+  const ctx = sharedFrameRuntime?.ctx || canvas.getContext("2d", { alpha: true });
   const ghostCanvas = document.createElement("canvas");
   const ghostCtx = ghostCanvas.getContext("2d", { alpha: true });
   const auxCanvas = document.createElement("canvas");
@@ -154,6 +172,7 @@ function createLayerRuntime(width, height) {
   return {
     canvas,
     ctx,
+    frameShared: Boolean(sharedFrameRuntime),
     ghostCanvas,
     ghostCtx,
     auxCanvas,
@@ -179,6 +198,60 @@ function togglePanel(head) {
 
 function cloneParams(params = {}) {
   return { ...params };
+}
+
+function randomChoice(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return null;
+  }
+  return items[Math.floor(Math.random() * items.length)] ?? null;
+}
+
+function shuffleItems(items) {
+  const copy = Array.isArray(items) ? [...items] : [];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+function getRandomIntInclusive(min, max) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return 0;
+  }
+  const safeMin = Math.ceil(Math.min(min, max));
+  const safeMax = Math.floor(Math.max(min, max));
+  return safeMin + Math.floor(Math.random() * (safeMax - safeMin + 1));
+}
+
+function getControlDigits(control) {
+  return Number.isInteger(control?.digits) ? control.digits : 2;
+}
+
+function snapToStep(value, min, step) {
+  if (!Number.isFinite(step) || step <= 0) {
+    return value;
+  }
+  return min + Math.round((value - min) / step) * step;
+}
+
+function clampControlValue(control, value) {
+  if (control?.kind === "toggle") {
+    return Boolean(value);
+  }
+  const digits = getControlDigits(control);
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return Number(control.min.toFixed(digits));
+  }
+  const steppedValue = snapToStep(clamp(numericValue, control.min, control.max), control.min, control.step);
+  return Number(clamp(steppedValue, control.min, control.max).toFixed(digits));
+}
+
+function sanitizeLayerOpacity(value) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? clamp(numericValue, 0, 1) : 1;
 }
 
 function formatControlValue(control, value) {
@@ -230,12 +303,16 @@ export function createVideoWorkspace({
   const effectMap = new Map(effectDefinitions.map((definition) => [definition.type, definition]));
   const shellTitle = document.querySelector(".titlebar h1");
   const fileInput = document.getElementById("video-input");
+  const presetInput = document.getElementById("preset-input");
   const sourceVideo = document.getElementById("video-source");
   const canvas = document.getElementById("video-canvas");
   const uploadButton = document.getElementById("upload-button");
   const playButton = document.getElementById("play-button");
+  const randomizeButton = document.getElementById("randomize-button");
   const splitButton = document.getElementById("split-button");
   const splitStackButton = document.getElementById("split-stack-button");
+  const savePresetButton = document.getElementById("save-preset-button");
+  const importPresetButton = document.getElementById("import-preset-button");
   const exportButton = document.getElementById("export-button");
   const headerPlayButton = document.getElementById("header-play-button");
   const headerStopButton = document.getElementById("header-stop-button");
@@ -254,9 +331,6 @@ export function createVideoWorkspace({
   const layersEmpty = document.getElementById("layers-empty");
   const layerSelectionLabel = document.getElementById("layer-selection-label");
   const effectRack = document.getElementById("effects-rack");
-  const effectSlidersLabel = document.getElementById("effect-sliders-label");
-  const effectSlidersPanel = document.getElementById("effect-sliders-panel");
-  const effectSlidersEmpty = document.getElementById("effect-sliders-empty");
   const collapsiblePanelHeads = Array.from(document.querySelectorAll(".panel-head[data-collapsible]"));
 
   if (!canvas || !sourceVideo || !fileInput || !layersList || !layersEmpty) {
@@ -277,12 +351,18 @@ export function createVideoWorkspace({
   const splitCtx = splitCanvas.getContext("2d", { alpha: false });
   const scratchCanvas = document.createElement("canvas");
   const scratchCtx = scratchCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
-  [ctx, sourceCtx, compositeCtx, splitCtx, scratchCtx].forEach(setContextSampling);
+  const layerFrameCanvas = document.createElement("canvas");
+  const layerFrameCtx = layerFrameCanvas.getContext("2d", { alpha: true });
+  [ctx, sourceCtx, compositeCtx, splitCtx, scratchCtx, layerFrameCtx].forEach(setContextSampling);
+  const sharedLayerFrameRuntime = {
+    canvas: layerFrameCanvas,
+    ctx: layerFrameCtx,
+  };
 
   let activeObjectUrl = null;
   let activeRecorder = null;
   let activeRecordStream = null;
-  let currentQuality = qualitySelect?.value || "balanced";
+  let currentQuality = qualitySelect?.value || "performance";
   let isRecording = false;
   let lastRenderAt = 0;
   let layers = [];
@@ -367,20 +447,57 @@ export function createVideoWorkspace({
     return effectMap.get(type)?.label || type;
   }
 
+  function sanitizeBlendMode(blend) {
+    return BLEND_MODE_OPTIONS.some((option) => option.value === blend) ? blend : "normal";
+  }
+
+  function buildPresetFilename() {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    return `motionvideo-preset-${stamp}.json`;
+  }
+
   function renderEffectRack() {
     if (!effectRack) {
       return;
     }
 
-    effectRack.innerHTML = effectDefinitions.map((definition) => `
-      ${definition.rackDividerLabel ? `<div class="effect-rack-divider" role="presentation">${definition.rackDividerLabel}</div>` : ""}
+    const renderButton = (definition) => `
       <button
         class="button preset-button"
         data-add-layer="${definition.type}"
         type="button"
         style="--layer-accent: ${definition.accent || "#9d73ff"};"
       >${definition.buttonLabel || definition.label}</button>
-    `).join("");
+    `;
+    const hasRackGroups = effectDefinitions.some((definition) => definition.rackGroup);
+
+    if (!hasRackGroups) {
+      effectRack.innerHTML = effectDefinitions.map((definition) => `
+        ${definition.rackDividerLabel ? `<div class="effect-rack-divider" role="presentation">${definition.rackDividerLabel}</div>` : ""}
+        ${renderButton(definition)}
+      `).join("");
+    } else {
+      const groupedDefinitions = new Map();
+      effectDefinitions.forEach((definition) => {
+        const key = definition.rackGroup || "default";
+        if (!groupedDefinitions.has(key)) {
+          groupedDefinitions.set(key, {
+            label: definition.rackGroupLabel || "",
+            order: definition.rackGroupOrder ?? Number.MAX_SAFE_INTEGER,
+            definitions: [],
+          });
+        }
+        groupedDefinitions.get(key).definitions.push(definition);
+      });
+
+      effectRack.innerHTML = Array.from(groupedDefinitions.values())
+        .sort((left, right) => left.order - right.order)
+        .map((group) => `
+          ${group.label ? `<div class="effect-rack-divider" role="presentation">${group.label}</div>` : ""}
+          ${group.definitions.map(renderButton).join("")}
+        `)
+        .join("");
+    }
 
     effectRack.querySelectorAll("[data-add-layer]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -401,7 +518,7 @@ export function createVideoWorkspace({
         opacity: 1,
         controlsOpen: false,
         params: {},
-        runtime: createLayerRuntime(width, height),
+        runtime: createLayerRuntime(width, height, sharedLayerFrameRuntime),
       };
     }
 
@@ -419,7 +536,7 @@ export function createVideoWorkspace({
       opacity: 1,
       controlsOpen: true,
       params: cloneParams(definition.defaultParams),
-      runtime: createLayerRuntime(width, height),
+      runtime: createLayerRuntime(width, height, sharedLayerFrameRuntime),
     };
   }
 
@@ -435,17 +552,24 @@ export function createVideoWorkspace({
     return baseLayer;
   }
 
-  function disposeLayerRuntime() {
-    return;
+  function disposeLayerRuntime(layer) {
+    if (!layer?.runtime) {
+      return;
+    }
+    try {
+      layer.runtime.dispose?.();
+    } catch (error) {
+      console.error("Failed to dispose layer runtime.", error);
+    }
   }
 
   function resizeRuntimes(width, height) {
     layers.forEach((layer) => {
       if (!layer.runtime) {
-        layer.runtime = createLayerRuntime(width, height);
+        layer.runtime = createLayerRuntime(width, height, sharedLayerFrameRuntime);
         return;
       }
-      [layer.runtime.canvas, layer.runtime.ghostCanvas, layer.runtime.auxCanvas, layer.runtime.bufferCanvas].forEach((node) => {
+      [layer.runtime.ghostCanvas, layer.runtime.auxCanvas, layer.runtime.bufferCanvas].forEach((node) => {
         node.width = width;
         node.height = height;
       });
@@ -472,11 +596,11 @@ export function createVideoWorkspace({
     const scale = Math.min(Math.min(MAX_EXPORT_WIDTH / videoWidth, 1) * preset.scale, 1);
     const width = Math.max(MIN_RENDER_WIDTH, Math.round(videoWidth * scale));
     const height = Math.max(MIN_RENDER_HEIGHT, Math.round(videoHeight * scale));
-    [canvas, sourceCanvas, compositeCanvas, splitCanvas, scratchCanvas].forEach((node) => {
+    [canvas, sourceCanvas, compositeCanvas, splitCanvas, scratchCanvas, layerFrameCanvas].forEach((node) => {
       node.width = width;
       node.height = height;
     });
-    [ctx, sourceCtx, compositeCtx, splitCtx, scratchCtx].forEach(setContextSampling);
+    [ctx, sourceCtx, compositeCtx, splitCtx, scratchCtx, layerFrameCtx].forEach(setContextSampling);
     resizeRuntimes(width, height);
   }
 
@@ -555,36 +679,6 @@ export function createVideoWorkspace({
         requestPreviewRefresh();
       });
     });
-  }
-
-  function renderSelectedEffectControls() {
-    if (!effectSlidersPanel || !effectSlidersEmpty || !effectSlidersLabel) {
-      return;
-    }
-
-    const layer = getSelectedLayer();
-    const isEffectLayer = Boolean(layer && layer.type !== "video");
-    const inlineControls = isEffectLayer ? buildInlineControls(layer) : "";
-
-    effectSlidersLabel.textContent = isEffectLayer ? layer.name : "No effect selected";
-
-    if (!isEffectLayer) {
-      effectSlidersPanel.innerHTML = "";
-      effectSlidersEmpty.hidden = false;
-      effectSlidersEmpty.textContent = "Select an effect layer to load its sliders.";
-      return;
-    }
-
-    if (!inlineControls) {
-      effectSlidersPanel.innerHTML = "";
-      effectSlidersEmpty.hidden = false;
-      effectSlidersEmpty.textContent = `${buildLayerTypeLabel(layer.type)} does not expose extra sliders yet.`;
-      return;
-    }
-
-    effectSlidersPanel.innerHTML = `<div class="layer-inline-panel" data-control-layer="${layer.id}">${inlineControls}</div>`;
-    effectSlidersEmpty.hidden = true;
-    bindInlineControls(effectSlidersPanel, layer);
   }
 
   function requestPreviewRefresh() {
@@ -714,7 +808,6 @@ export function createVideoWorkspace({
       layersList.append(row);
     });
 
-    renderSelectedEffectControls();
   }
 
   function addLayer(type) {
@@ -749,7 +842,7 @@ export function createVideoWorkspace({
       id: nextLayerId += 1,
       name: `${buildLayerTypeLabel(original.type)} Copy`,
       params: cloneParams(original.params),
-      runtime: createLayerRuntime(width, height),
+      runtime: createLayerRuntime(width, height, sharedLayerFrameRuntime),
     };
     const index = layers.findIndex((layer) => layer.id === layerId);
     layers.splice(index + 1, 0, duplicate);
@@ -816,6 +909,219 @@ export function createVideoWorkspace({
     requestPreviewRefresh();
   }
 
+  function replaceEffectLayers(effectLayers) {
+    const baseLayer = ensureBaseLayer();
+    layers.forEach((layer) => {
+      if (layer !== baseLayer) {
+        disposeLayerRuntime(layer);
+      }
+    });
+    layers = [baseLayer, ...effectLayers];
+    selectedLayerId = effectLayers.at(-1)?.id ?? baseLayer.id;
+    renderLayerList();
+    syncLayerSelection();
+    resetFrameAnalysisState();
+    requestPreviewRefresh();
+  }
+
+  function randomizeLayerParams(layer, definition) {
+    if (!definition?.controls?.length) {
+      return;
+    }
+
+    definition.controls.forEach((control) => {
+      if (control.kind === "toggle") {
+        layer.params[control.key] = Math.random() >= 0.5;
+        return;
+      }
+      const rawValue = control.min + Math.random() * (control.max - control.min);
+      layer.params[control.key] = clampControlValue(control, rawValue);
+    });
+  }
+
+  function pickRandomEffectsByGroup() {
+    const definitionsByGroup = effectDefinitions.reduce((groups, definition) => {
+      const key = definition.rackGroup || "tracking";
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key).push(definition);
+      return groups;
+    }, new Map());
+    const chosenDefinitions = [];
+    const selectedCounts = {};
+    const shortGroups = [];
+
+    Object.entries(RANDOM_EFFECT_GROUP_RULES).forEach(([groupKey, rule]) => {
+      const availableDefinitions = shuffleItems(definitionsByGroup.get(groupKey) || []);
+      const availableCount = availableDefinitions.length;
+      const maxCount = Math.min(rule.max, availableCount);
+      const minCount = Math.min(rule.min, maxCount);
+      const selectedCount = maxCount > minCount
+        ? getRandomIntInclusive(minCount, maxCount)
+        : maxCount;
+
+      if (rule.min > 0 && availableCount < rule.min) {
+        shortGroups.push(rule.label);
+      }
+
+      selectedCounts[groupKey] = selectedCount;
+      chosenDefinitions.push(...availableDefinitions.slice(0, selectedCount));
+    });
+
+    return {
+      chosenDefinitions: shuffleItems(chosenDefinitions),
+      selectedCounts,
+      shortGroups,
+    };
+  }
+
+  function serializePreset() {
+    return {
+      app: PRESET_APP_ID,
+      version: PRESET_FILE_VERSION,
+      exportedAt: new Date().toISOString(),
+      layers: layers
+        .filter((layer) => layer.type !== "video")
+        .map((layer) => ({
+          type: layer.type,
+          name: layer.name,
+          visible: layer.visible,
+          blend: layer.blend,
+          opacity: Number(layer.opacity.toFixed(2)),
+          controlsOpen: layer.controlsOpen,
+          params: cloneParams(layer.params),
+        })),
+    };
+  }
+
+  function savePreset() {
+    const preset = serializePreset();
+    const blob = new Blob([JSON.stringify(preset, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = buildPresetFilename();
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus(`Preset saved with ${preset.layers.length} effect layer${preset.layers.length === 1 ? "" : "s"}.`);
+  }
+
+  function applyPreset(preset) {
+    if (!sourceVideo.src) {
+      setStatus("Upload a video first, then import a preset.");
+      return;
+    }
+    if (!preset || typeof preset !== "object") {
+      throw new Error("Preset JSON is invalid.");
+    }
+
+    const layerEntries = Array.isArray(preset.layers) ? preset.layers : null;
+    if (!layerEntries) {
+      throw new Error("Preset JSON must include a layers array.");
+    }
+
+    const importedLayers = [];
+    layerEntries.forEach((entry) => {
+      if (!entry || typeof entry !== "object" || !effectMap.has(entry.type)) {
+        return;
+      }
+
+      const definition = effectMap.get(entry.type);
+      const layer = createLayer(entry.type);
+      if (typeof entry.name === "string" && entry.name.trim()) {
+        layer.name = entry.name.trim();
+      }
+      layer.visible = entry.visible !== false;
+      layer.blend = typeof entry.blend === "string" ? sanitizeBlendMode(entry.blend) : layer.blend;
+      layer.opacity = sanitizeLayerOpacity(entry.opacity);
+      layer.controlsOpen = entry.controlsOpen !== false;
+
+      if (entry.params && typeof entry.params === "object") {
+        definition.controls.forEach((control) => {
+          if (!Object.prototype.hasOwnProperty.call(entry.params, control.key)) {
+            return;
+          }
+          const value = entry.params[control.key];
+          if (control.kind === "toggle") {
+            layer.params[control.key] = Boolean(value);
+            return;
+          }
+          const numericValue = Number(value);
+          if (!Number.isFinite(numericValue)) {
+            return;
+          }
+          layer.params[control.key] = clampControlValue(control, numericValue);
+        });
+      }
+
+      importedLayers.push(layer);
+    });
+
+    replaceEffectLayers(importedLayers);
+
+    if (!importedLayers.length && layerEntries.length) {
+      setStatus("Preset imported, but none of its effect types are available in this rack.");
+      return;
+    }
+
+    const skippedCount = Math.max(0, layerEntries.length - importedLayers.length);
+    let message = `Preset imported with ${importedLayers.length} effect layer${importedLayers.length === 1 ? "" : "s"}.`;
+    if (skippedCount > 0) {
+      message += ` Skipped ${skippedCount} unsupported layer${skippedCount === 1 ? "" : "s"}.`;
+    }
+    setStatus(message);
+  }
+
+  async function importPresetFile(file) {
+    if (!file) {
+      return;
+    }
+
+    const payload = JSON.parse(await file.text());
+    applyPreset(payload);
+  }
+
+  function randomizeEffects() {
+    if (!sourceVideo.src) {
+      setStatus("Upload a video first.");
+      return;
+    }
+    if (!effectDefinitions.length) {
+      setStatus("No rack effects are available to randomize.");
+      return;
+    }
+
+    const {
+      chosenDefinitions,
+      selectedCounts,
+      shortGroups,
+    } = pickRandomEffectsByGroup();
+    const randomLayers = chosenDefinitions.map((definition) => {
+      const layer = createLayer(definition.type);
+      layer.name = definition.label;
+      layer.blend = randomChoice(RANDOM_BLEND_OPTIONS) || layer.blend;
+      layer.opacity = Number((0.35 + Math.random() * 0.65).toFixed(2));
+      layer.controlsOpen = false;
+      randomizeLayerParams(layer, definition);
+      return layer;
+    });
+
+    if (randomLayers.length) {
+      randomLayers[randomLayers.length - 1].controlsOpen = true;
+    }
+
+    replaceEffectLayers(randomLayers);
+    let message = `Randomized ${randomLayers.length} effect layer${randomLayers.length === 1 ? "" : "s"}: `
+      + `${selectedCounts.color || 0} color, `
+      + `${selectedCounts.tracking || 0} tracking, `
+      + `${selectedCounts.particles || 0} particle tracker.`;
+    if (shortGroups.length) {
+      message += ` Limited by available ${shortGroups.join(" and ")} layers.`;
+    }
+    setStatus(message);
+  }
+
   function renderLayer(layer, sourceImageData, elapsed) {
     if (layer.type === "video") {
       layer.runtime.ctx.clearRect(0, 0, layer.runtime.canvas.width, layer.runtime.canvas.height);
@@ -829,6 +1135,7 @@ export function createVideoWorkspace({
       elapsed,
       previousSourceImageData,
       getQualityPreset,
+      requestPreviewRefresh,
     });
   }
 
@@ -1224,8 +1531,18 @@ export function createVideoWorkspace({
       setStatus(error.message);
     });
   });
+  presetInput?.addEventListener("change", (event) => {
+    const [file] = event.target.files || [];
+    importPresetFile(file).catch((error) => {
+      setStatus(error.message || "Preset import failed.");
+    });
+    event.target.value = "";
+  });
   playButton?.addEventListener("click", () => {
     togglePlayback();
+  });
+  randomizeButton?.addEventListener("click", () => {
+    randomizeEffects();
   });
   headerPlayButton?.addEventListener("click", () => {
     togglePlayback();
@@ -1249,6 +1566,15 @@ export function createVideoWorkspace({
   });
   exportButton?.addEventListener("click", () => {
     exportLoop();
+  });
+  savePresetButton?.addEventListener("click", () => {
+    savePreset();
+  });
+  importPresetButton?.addEventListener("click", () => {
+    if (presetInput) {
+      presetInput.value = "";
+    }
+    presetInput?.click();
   });
   splitButton?.addEventListener("click", () => {
     setSplitScreenMode(SPLIT_SCREEN_MODES.side);

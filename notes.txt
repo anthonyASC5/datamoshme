@@ -1,0 +1,19 @@
+my notes starting 3/18
+
+https://amagi.dev/vfx-js/
+
+3/18/26
+
+trying to implement https://amagi.dev/vfx-js/ vfx.js library
+Docs: https://amagi.dev/vfx-js/docs/types/ShaderPreset.html
+
+Notes:
+
+Blob tracking takes the average of e3dges (particles that move) and displays blobs on sections that are moving. 
+no real time detection just shadows and partyicles. 
+
+I cannot make a public post page unless i use a server (firebase) or php.
+
+3/18 1:35 AM - JUST IMPLEMENTED SAVE ? IMPORT PRESET (saves preset as a json)
+
+To DO:

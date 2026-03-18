@@ -234,6 +234,14 @@
         padding: 5px 10px;
       }
 
+      .button-random {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(86, 24, 132, 0.12)),
+          linear-gradient(180deg, #bb7dff, #8b45dd);
+        color: #fff8ff;
+        text-shadow: 1px 1px 0 rgba(56, 17, 90, 0.65);
+      }
+
       .icon-button {
         width: 32px;
         min-width: 32px;
@@ -437,7 +445,7 @@
 
       .preset-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        max-height: 42vh;
+        max-height: clamp(360px, 62vh, 920px);
         overflow: auto;
       }
 
@@ -574,6 +582,7 @@
       }
 
       #video-input,
+      #preset-input,
       #video-source {
         display: none;
       }
@@ -698,8 +707,11 @@
 
                   <div class="transport-bank transport-bank-secondary">
                     <button class="button" id="play-button" type="button">Play / Pause</button>
+                    <button class="button button-random" id="randomize-button" type="button">RANDOM</button>
                     <button class="button" id="split-button" type="button">Split Side</button>
                     <button class="button" id="split-stack-button" type="button">Split Stack</button>
+                    <button class="button" id="save-preset-button" type="button">Save Preset</button>
+                    <button class="button" id="import-preset-button" type="button">Import Preset</button>
                     <button class="button" id="export-button" type="button">Record and Render</button>
                   </div>
                 </div>
@@ -721,11 +733,12 @@
 
               <div class="player-readout">
                 <div class="meta" id="file-name">No file loaded.</div>
-                <div class="meta" id="quality-meta">Balanced quality renders at 72% resolution and caps preview at 30 FPS.</div>
+                <div class="meta" id="quality-meta">Performance quality renders at 55% resolution and caps preview at 30 FPS.</div>
                 <div class="status" id="status-text">Ready. Upload a video for motion playback and export.</div>
               </div>
 
               <input id="video-input" type="file" accept="video/mp4,video/webm,video/quicktime" />
+              <input id="preset-input" type="file" accept="application/json,.json" />
               <video id="video-source" playsinline loop crossorigin="anonymous"></video>
             </div>
 
@@ -734,10 +747,48 @@
                 <strong>Playback Surface</strong>
                 <span>Purple Windows 98 shell, live composite in the center, and the full transport deck docked directly under the monitor.</span>
               </div>
-              <div class="copy-box">
-                <strong>Motion Rack</strong>
-                <span>The rack is driven by <code>motionvideofx.js</code> and now focuses on cluster tracking, blob and box layers, black-background skin masking, green-screen masking, color centroids, a NEW EFFECTS TESTING bank for smear, feedback, edge, grain, Voronoi, and punchy black-and-white print passes, plus a separate particle-tracker bank for the feature-flow layers.</span>
-              </div>
+              <section class="panel-group" data-panel-group>
+                <div class="panel-head" data-collapsible>
+                  <div class="panel-head-main">
+                    <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Render Setup">▾</button>
+                    <h2>Render Setup</h2>
+                  </div>
+                  <span>Video Device</span>
+                </div>
+                <div class="panel-body">
+                  <div class="settings-grid">
+                    <div class="layer-field">
+                      <label for="quality-select">Render Quality</label>
+                      <select id="quality-select">
+                        <option value="micro">Micro 10%</option>
+                        <option value="low">Low 30%</option>
+                        <option value="performance" selected>Performance 55%</option>
+                        <option value="balanced">Balanced 72%</option>
+                        <option value="quality">Quality 100%</option>
+                      </select>
+                    </div>
+
+                    <div class="layer-field">
+                      <label for="fps-select">FPS Cap</label>
+                      <select id="fps-select">
+                        <option value="2">2 FPS</option>
+                        <option value="5">5 FPS</option>
+                        <option value="10">10 FPS</option>
+                        <option value="20">20 FPS</option>
+                        <option value="24">24 FPS</option>
+                        <option value="30" selected>30 FPS</option>
+                        <option value="45">45 FPS</option>
+                        <option value="60">60 FPS</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="copy-box">
+                    <strong>Render Deck</strong>
+                    <span>Upload the source clip, tune preview resolution and frame-rate caps, then play, split, or record the current composite to WebM.</span>
+                  </div>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -757,50 +808,10 @@
             <section class="panel-group" data-panel-group>
               <div class="panel-head" data-collapsible>
                 <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Render Setup">▾</button>
-                  <h2>Render Setup</h2>
-                </div>
-                <span>Video Device</span>
-              </div>
-              <div class="panel-body">
-                <div class="settings-grid">
-                  <div class="layer-field">
-                    <label for="quality-select">Render Quality</label>
-                    <select id="quality-select">
-                      <option value="micro">Micro 10%</option>
-                      <option value="low">Low 30%</option>
-                      <option value="performance">Performance 55%</option>
-                      <option value="balanced" selected>Balanced 72%</option>
-                      <option value="quality">Quality 100%</option>
-                    </select>
-                  </div>
-
-                  <div class="layer-field">
-                    <label for="fps-select">FPS Cap</label>
-                    <select id="fps-select">
-                      <option value="10">10 FPS</option>
-                      <option value="20">20 FPS</option>
-                      <option value="24">24 FPS</option>
-                      <option value="30" selected>30 FPS</option>
-                      <option value="60">60 FPS</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div class="copy-box">
-                  <strong>Render Deck</strong>
-                  <span>Upload the source clip, tune preview resolution and frame-rate caps, then play, split, or record the current composite to WebM.</span>
-                </div>
-              </div>
-            </section>
-
-            <section class="panel-group" data-panel-group>
-              <div class="panel-head" data-collapsible>
-                <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Motion FX Rack">▾</button>
+                  <button class="hud-toggle" type="button" aria-expanded="true" aria-label="Toggle Effects">▾</button>
                   <h2>Effects</h2>
                 </div>
-                <span>Motion Rack</span>
+                <span>Layer Bank</span>
               </div>
               <div class="panel-body">
                 <div class="copy-box">
@@ -811,23 +822,6 @@
               </div>
             </section>
 
-            <section class="panel-group collapsed" data-panel-group>
-              <div class="panel-head" data-collapsible>
-                <div class="panel-head-main">
-                  <button class="hud-toggle" type="button" aria-expanded="false" aria-label="Toggle Effect Sliders">▸</button>
-                  <h2>Effect Sliders</h2>
-                </div>
-                <span id="effect-sliders-label">No effect selected</span>
-              </div>
-              <div class="panel-body">
-                <div class="copy-box">
-                  <strong>Selected Effect</strong>
-                  <span>Pick a Motion Video layer in the stack to tune its live sliders here without opening the layer card.</span>
-                </div>
-                <div id="effect-sliders-panel"></div>
-                <div class="layer-empty" id="effect-sliders-empty">Select an effect layer to load its sliders.</div>
-              </div>
-            </section>
           </aside>
         </main>
       </div>
