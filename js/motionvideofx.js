@@ -1,6 +1,14 @@
 const VFX_MODULE_URL = "https://esm.sh/@vfx-js/core@0.8.0";
+const IMAGE_EFFECT_ASSETS = Object.freeze({
+  imageFlash: Object.freeze({
+    src: new URL("../images/forvideo/money.png", import.meta.url).href,
+  }),
+});
+const FILM_MATTE_MAX_BUFFER_DIMENSION = 480;
+const FILM_MATTE_BUFFER_FPS = 20;
 
 let vfxModulePromise = null;
+const imageEffectAssetCache = new Map();
 
 function loadVfxModule() {
   if (!vfxModulePromise) {
@@ -49,6 +57,40 @@ function cleanupVfxSurface(surface) {
   if (surface.outputCanvas?.isConnected) {
     surface.outputCanvas.remove();
   }
+}
+
+function loadImageEffectAsset(key, requestPreviewRefresh) {
+  const definition = IMAGE_EFFECT_ASSETS[key];
+  if (!definition) {
+    return null;
+  }
+
+  const existing = imageEffectAssetCache.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const image = new Image();
+  const entry = {
+    key,
+    image,
+    ready: false,
+    error: null,
+    loggedError: false,
+  };
+
+  imageEffectAssetCache.set(key, entry);
+  image.decoding = "async";
+  image.onload = () => {
+    entry.ready = true;
+    requestPreviewRefresh?.();
+  };
+  image.onerror = () => {
+    entry.error = new Error(`Failed to load image effect asset: ${definition.src}`);
+    requestPreviewRefresh?.();
+  };
+  image.src = definition.src;
+  return entry;
 }
 
 async function initializeVfxSurface(surface, requestPreviewRefresh) {
@@ -342,6 +384,28 @@ function createToggle(key, label) {
   return { kind: "toggle", key, label };
 }
 
+function withHighImageSmoothing(ctx, callback) {
+  if (!ctx || typeof callback !== "function") {
+    return;
+  }
+
+  const previousEnabled = ctx.imageSmoothingEnabled;
+  const previousQuality = typeof ctx.imageSmoothingQuality === "string" ? ctx.imageSmoothingQuality : null;
+  ctx.imageSmoothingEnabled = true;
+  if ("imageSmoothingQuality" in ctx) {
+    ctx.imageSmoothingQuality = "high";
+  }
+
+  try {
+    callback();
+  } finally {
+    ctx.imageSmoothingEnabled = previousEnabled;
+    if ("imageSmoothingQuality" in ctx) {
+      ctx.imageSmoothingQuality = previousQuality || "low";
+    }
+  }
+}
+
 const EFFECT_COLORS = Object.freeze({
   clusterTrack: "#7ff4d8",
   motionThreshold: "#ff5a8e",
@@ -375,6 +439,8 @@ const EFFECT_COLORS = Object.freeze({
   skinTone: "#f2c89a",
   greenScreenMotion: "#5dff84",
   colorCentroid: "#ff9fd7",
+  imageFlash: "#ffe57f",
+  filmMatteEffect: "#f3f3f3",
 });
 
 const DEFAULT_BLEND = "screen";
@@ -493,6 +559,44 @@ const EFFECT_DEFINITIONS = [
       createSlider("signalLoss", "Signal Loss", 0, 1, 0.01),
       createSlider("emissionRate", "Particle Emit", 0.1, 3, 0.01),
       createSlider("lifetime", "Particle Life", 0.05, 1, 0.01),
+    ],
+  },
+  {
+    type: "imageFlash",
+    label: "Flash",
+    buttonLabel: "Flash",
+    accent: EFFECT_COLORS.imageFlash,
+    defaultBlend: "normal",
+    defaultParams: { duration: 3, size: 0.34, travel: 0.72, flashRate: 5.6, glow: 0.56 },
+    controls: [
+      createSlider("duration", "Duration", 0.5, 6, 0.1, 1),
+      createSlider("size", "Size", 0.12, 0.72, 0.01),
+      createSlider("travel", "Travel", 0, 1, 0.01),
+      createSlider("flashRate", "Flash Rate", 1, 12, 0.1, 1),
+      createSlider("glow", "Glow", 0, 1, 0.01),
+    ],
+  },
+  {
+    type: "filmMatteEffect",
+    label: "Film Matte Effect",
+    buttonLabel: "Film Matte",
+    accent: EFFECT_COLORS.filmMatteEffect,
+    defaultBlend: "normal",
+    defaultParams: {
+      frameCount: 5,
+      loopDuration: 3,
+      offsetSpread: 1,
+      framePadding: 18,
+      grainIntensity: 0.24,
+      flickerIntensity: 0.2,
+    },
+    controls: [
+      createSlider("frameCount", "Frame Count", 3, 7, 1, 0),
+      createSlider("loopDuration", "Loop Duration", 1, 6, 0.1, 1),
+      createSlider("offsetSpread", "Offset Spread", 0.2, 2, 0.01),
+      createSlider("framePadding", "Frame Padding", 0, 48, 1, 0),
+      createSlider("grainIntensity", "Grain Intensity", 0, 1, 0.01),
+      createSlider("flickerIntensity", "Flicker Intensity", 0, 1, 0.01),
     ],
   },
   {
@@ -935,6 +1039,8 @@ const EFFECT_TYPE_TO_RACK_GROUP = Object.freeze({
   edgeGlow: "color",
   filmGrain: "color",
   punchBlackWhite: "color",
+  imageFlash: "new",
+  filmMatteEffect: "new",
   sparseOpticalFlow: "particles",
   harrisCorners: "particles",
   orbTracking: "particles",
@@ -1802,6 +1908,235 @@ function drawSquareNode(ctx, x, y, size, color, alpha = 0.9, rotation = 0) {
   ctx.lineWidth = 1.2;
   ctx.strokeRect(-size * 0.5, -size * 0.5, size, size);
   ctx.restore();
+}
+
+const FILM_MATTE_SLOT_TEMPLATES = Object.freeze([
+  Object.freeze({ x: 0.28, y: 0.18, width: 0.44, height: 0.64 }),
+  Object.freeze({ x: 0.05, y: 0.07, width: 0.19, height: 0.24 }),
+  Object.freeze({ x: 0.76, y: 0.07, width: 0.19, height: 0.24 }),
+  Object.freeze({ x: 0.05, y: 0.69, width: 0.19, height: 0.24 }),
+  Object.freeze({ x: 0.76, y: 0.69, width: 0.19, height: 0.24 }),
+  Object.freeze({ x: 0.33, y: 0.05, width: 0.34, height: 0.15 }),
+  Object.freeze({ x: 0.33, y: 0.8, width: 0.34, height: 0.15 }),
+]);
+
+const FILM_MATTE_VARIATIONS = Object.freeze([
+  Object.freeze({ focusX: 0.5, focusY: 0.48, zoom: 1.06, rotation: -0.5, brightness: 0.02 }),
+  Object.freeze({ focusX: 0.33, focusY: 0.32, zoom: 1.14, rotation: -1.4, brightness: -0.01 }),
+  Object.freeze({ focusX: 0.68, focusY: 0.34, zoom: 1.12, rotation: 1.5, brightness: 0.01 }),
+  Object.freeze({ focusX: 0.34, focusY: 0.72, zoom: 1.15, rotation: -1.1, brightness: -0.02 }),
+  Object.freeze({ focusX: 0.69, focusY: 0.68, zoom: 1.13, rotation: 1.2, brightness: 0 }),
+  Object.freeze({ focusX: 0.5, focusY: 0.28, zoom: 1.18, rotation: 0.7, brightness: 0.01 }),
+  Object.freeze({ focusX: 0.5, focusY: 0.73, zoom: 1.16, rotation: -0.8, brightness: -0.01 }),
+]);
+
+function buildRoundedRectPath(ctx, x, y, width, height, radius) {
+  const corner = Math.max(0, Math.min(radius, width * 0.5, height * 0.5));
+  ctx.beginPath();
+  ctx.moveTo(x + corner, y);
+  ctx.lineTo(x + width - corner, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + corner);
+  ctx.lineTo(x + width, y + height - corner);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - corner, y + height);
+  ctx.lineTo(x + corner, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - corner);
+  ctx.lineTo(x, y + corner);
+  ctx.quadraticCurveTo(x, y, x + corner, y);
+  ctx.closePath();
+}
+
+function drawImageCoverWithFocus(ctx, source, dx, dy, dw, dh, {
+  focusX = 0.5,
+  focusY = 0.5,
+  zoom = 1,
+} = {}) {
+  const sw = source?.videoWidth || source?.width || 0;
+  const sh = source?.videoHeight || source?.height || 0;
+  if (!sw || !sh || !dw || !dh) {
+    return;
+  }
+
+  const destAspect = dw / dh;
+  let sWidth = sw;
+  let sHeight = sh;
+  if (sw / sh > destAspect) {
+    sWidth = sh * destAspect;
+  } else {
+    sHeight = sw / destAspect;
+  }
+
+  const zoomValue = Math.max(1, zoom);
+  sWidth /= zoomValue;
+  sHeight /= zoomValue;
+  const sx = clamp(focusX * sw - sWidth * 0.5, 0, Math.max(0, sw - sWidth));
+  const sy = clamp(focusY * sh - sHeight * 0.5, 0, Math.max(0, sh - sHeight));
+  ctx.drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dw, dh);
+}
+
+function buildFilmMatteLayout(width, height, frameCount, padding) {
+  return FILM_MATTE_SLOT_TEMPLATES
+    .slice(0, Math.max(0, frameCount))
+    .map((slot) => {
+      const x = slot.x * width;
+      const y = slot.y * height;
+      const slotWidth = slot.width * width;
+      const slotHeight = slot.height * height;
+      const inset = Math.min(padding, slotWidth * 0.18, slotHeight * 0.18);
+      return {
+        x: x + inset,
+        y: y + inset,
+        width: Math.max(24, slotWidth - inset * 2),
+        height: Math.max(24, slotHeight - inset * 2),
+      };
+    });
+}
+
+function createFilmMatteFrame(width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  if ("imageSmoothingQuality" in ctx) {
+    ctx.imageSmoothingQuality = "medium";
+  }
+  return {
+    canvas,
+    ctx,
+    captureTime: 0,
+    stamp: 0,
+  };
+}
+
+function resetFilmMatteBuffer(buffer) {
+  if (!buffer) {
+    return;
+  }
+  buffer.writeIndex = 0;
+  buffer.filled = 0;
+  buffer.lastCaptureMediaTime = null;
+}
+
+function ensureFilmMatteBuffer(state, source, loopDuration) {
+  const sourceWidth = source?.videoWidth || source?.width || state.width;
+  const sourceHeight = source?.videoHeight || source?.height || state.height;
+  const snapshotScale = Math.min(1, FILM_MATTE_MAX_BUFFER_DIMENSION / Math.max(1, sourceWidth, sourceHeight));
+  const snapshotWidth = Math.max(96, Math.round(sourceWidth * snapshotScale));
+  const snapshotHeight = Math.max(54, Math.round(sourceHeight * snapshotScale));
+  const maxFrames = Math.max(24, Math.min(160, Math.ceil(loopDuration * FILM_MATTE_BUFFER_FPS) + 10));
+  const key = `${snapshotWidth}x${snapshotHeight}:${maxFrames}`;
+
+  if (state.filmMatteBuffer?.key === key) {
+    return state.filmMatteBuffer;
+  }
+
+  const frames = Array.from({ length: maxFrames }, () => createFilmMatteFrame(snapshotWidth, snapshotHeight));
+  state.filmMatteBuffer = {
+    key,
+    frames,
+    snapshotWidth,
+    snapshotHeight,
+    maxFrames,
+    writeIndex: 0,
+    filled: 0,
+    stamp: 0,
+    lastCaptureMediaTime: null,
+    lastObservedMediaTime: null,
+  };
+  return state.filmMatteBuffer;
+}
+
+function captureFilmMatteFrame(buffer, source, mediaTime, loopDuration) {
+  if (!buffer || !source) {
+    return;
+  }
+
+  const currentTime = Number.isFinite(mediaTime) ? Math.max(0, mediaTime) : 0;
+  const previousObservedTime = buffer.lastObservedMediaTime;
+  buffer.lastObservedMediaTime = currentTime;
+
+  if (previousObservedTime != null) {
+    const delta = currentTime - previousObservedTime;
+    if (delta < -0.05 || delta > Math.max(0.5, loopDuration * 0.35)) {
+      resetFilmMatteBuffer(buffer);
+    }
+  }
+
+  const captureStep = 1 / FILM_MATTE_BUFFER_FPS;
+  if (
+    buffer.lastCaptureMediaTime != null
+    && Math.abs(currentTime - buffer.lastCaptureMediaTime) < captureStep * 0.7
+  ) {
+    return;
+  }
+
+  const frame = buffer.frames[buffer.writeIndex];
+  frame.ctx.clearRect(0, 0, buffer.snapshotWidth, buffer.snapshotHeight);
+  frame.ctx.drawImage(source, 0, 0, buffer.snapshotWidth, buffer.snapshotHeight);
+  frame.captureTime = currentTime;
+  buffer.stamp += 1;
+  frame.stamp = buffer.stamp;
+  buffer.lastCaptureMediaTime = currentTime;
+  buffer.writeIndex = (buffer.writeIndex + 1) % buffer.maxFrames;
+  buffer.filled = Math.min(buffer.filled + 1, buffer.maxFrames);
+}
+
+function resolveFilmMatteBufferedFrame(buffer, desiredPhase, loopDuration) {
+  if (!buffer || !buffer.filled) {
+    return null;
+  }
+
+  let bestFrame = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestStamp = -1;
+
+  for (let index = 0; index < buffer.filled; index += 1) {
+    const frame = buffer.frames[index];
+    if (!frame?.stamp) {
+      continue;
+    }
+    const phase = ((frame.captureTime % loopDuration) + loopDuration) % loopDuration;
+    const delta = Math.abs(phase - desiredPhase);
+    const circularDistance = Math.min(delta, loopDuration - delta);
+    if (
+      circularDistance < bestDistance - 0.0001
+      || (Math.abs(circularDistance - bestDistance) <= 0.0001 && frame.stamp > bestStamp)
+    ) {
+      bestDistance = circularDistance;
+      bestStamp = frame.stamp;
+      bestFrame = frame;
+    }
+  }
+
+  return bestFrame?.canvas || null;
+}
+
+function drawFilmMatteGrain(ctx, rect, elapsed, intensity, seed = 0) {
+  if (intensity <= 0.001) {
+    return;
+  }
+
+  const step = 4;
+  const alphaScale = 0.028 + intensity * 0.1;
+  for (let y = rect.y; y < rect.y + rect.height; y += step) {
+    for (let x = rect.x; x < rect.x + rect.width; x += step) {
+      const noise = sampleFilmNoise(
+        x + seed * 13.7,
+        y - seed * 7.3,
+        elapsed * (0.8 + intensity * 2.4),
+        0.075,
+        911 + seed * 17,
+      );
+      const alpha = Math.abs(noise) * alphaScale;
+      if (alpha <= 0.004) {
+        continue;
+      }
+      ctx.fillStyle = noise >= 0
+        ? `rgba(255, 255, 255, ${alpha})`
+        : `rgba(0, 0, 0, ${alpha * 0.86})`;
+      ctx.fillRect(x, y, step, step);
+    }
+  }
 }
 
 function buildTrackDistortedLoop(track, elapsed, amount = 0.4, points = 12) {
@@ -3338,6 +3673,210 @@ function renderVfxDuotoneLayer(layer, sourceImageData, requestPreviewRefresh) {
   finishLayerTrail(layer);
 }
 
+function renderImageFlashLayer(layer, analysis, mediaTime = 0, requestPreviewRefresh) {
+  const ctx = layer.runtime.ctx;
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+
+  const asset = loadImageEffectAsset("imageFlash", requestPreviewRefresh);
+  if (!asset) {
+    finishLayerTrail(layer);
+    return;
+  }
+
+  if (asset.error) {
+    if (!asset.loggedError) {
+      asset.loggedError = true;
+      console.error(asset.error);
+    }
+    finishLayerTrail(layer);
+    return;
+  }
+
+  if (!asset.ready || !asset.image?.width || !asset.image?.height) {
+    finishLayerTrail(layer);
+    return;
+  }
+
+  const duration = clamp(layer.params.duration ?? 3, 0.5, 6);
+  const currentTime = Number.isFinite(mediaTime) ? Math.max(0, mediaTime) : 0;
+  if (currentTime > duration) {
+    finishLayerTrail(layer);
+    return;
+  }
+
+  const progress = clamp(currentTime / duration, 0, 1);
+  const entry = smoothstep(0, 0.44, progress);
+  const exit = 1 - smoothstep(0.82, 1, progress);
+  const envelope = entry * exit;
+  const flashRate = clamp(layer.params.flashRate ?? 5.6, 1, 12);
+  const flashPulse = 0.5 + 0.5 * Math.abs(Math.sin(currentTime * Math.PI * flashRate));
+  const flashAlpha = clamp(envelope * (0.4 + flashPulse * 0.6), 0, 1);
+  const size = clamp(layer.params.size ?? 0.34, 0.12, 0.72);
+  const travel = clamp(layer.params.travel ?? 0.72, 0, 1);
+  const glow = clamp(layer.params.glow ?? 0.56, 0, 1);
+  const baseSize = Math.min(analysis.width, analysis.height) * (0.16 + size * 0.54);
+  const imageAspect = asset.image.width / Math.max(1, asset.image.height);
+  const breathing = 1 + Math.sin(progress * Math.PI) * 0.05 + flashPulse * 0.02;
+  const drawWidth = baseSize * breathing;
+  const drawHeight = drawWidth / Math.max(0.001, imageAspect);
+  const offscreenX = -drawWidth * (0.8 + travel * 0.85);
+  const finalX = analysis.width * 0.53 - drawWidth * 0.5;
+  const startY = analysis.height * (0.76 + travel * 0.06) - drawHeight * 0.5;
+  const finalY = analysis.height * 0.58 - drawHeight * 0.5;
+  const drawX = lerp(offscreenX, finalX, entry);
+  const drawY = lerp(startY, finalY, entry) - Math.sin(entry * Math.PI) * (6 + travel * 14);
+  const centerX = drawX + drawWidth * 0.5;
+  const centerY = drawY + drawHeight * 0.5;
+  const rotation = lerp(-0.26 - travel * 0.08, -0.03, entry);
+  const haloAlpha = flashAlpha * (0.08 + glow * 0.16) * (0.6 + flashPulse * 0.4);
+  const haloRadius = Math.max(drawWidth, drawHeight) * (0.42 + glow * 0.4);
+  const flashOffset = (flashPulse - 0.5) * (6 + glow * 12);
+
+  if (haloAlpha > 0.001) {
+    const gradient = ctx.createRadialGradient(centerX, centerY, haloRadius * 0.08, centerX, centerY, haloRadius);
+    gradient.addColorStop(0, `rgba(255, 255, 255, ${haloAlpha})`);
+    gradient.addColorStop(0.4, `rgba(255, 246, 186, ${haloAlpha * 0.72})`);
+    gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, analysis.width, analysis.height);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.translate(centerX - flashOffset * 0.4, centerY + flashOffset * 0.18);
+  ctx.rotate(rotation * 0.92);
+  ctx.globalCompositeOperation = "screen";
+  ctx.globalAlpha = flashAlpha * (0.18 + glow * 0.22);
+  ctx.filter = `blur(${1.2 + glow * 8}px)`;
+  withHighImageSmoothing(ctx, () => {
+    ctx.drawImage(asset.image, -drawWidth * 0.56, -drawHeight * 0.56, drawWidth * 1.12, drawHeight * 1.12);
+  });
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.rotate(rotation);
+  ctx.globalAlpha = flashAlpha;
+  ctx.shadowColor = `rgba(255, 248, 220, ${0.24 + glow * 0.3})`;
+  ctx.shadowBlur = 8 + glow * 20;
+  withHighImageSmoothing(ctx, () => {
+    ctx.drawImage(asset.image, -drawWidth * 0.5, -drawHeight * 0.5, drawWidth, drawHeight);
+  });
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(centerX + flashOffset, centerY - flashOffset * 0.4);
+  ctx.rotate(rotation * 0.8);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = flashAlpha * (0.1 + glow * 0.12);
+  withHighImageSmoothing(ctx, () => {
+    ctx.drawImage(asset.image, -drawWidth * 0.48, -drawHeight * 0.48, drawWidth * 0.96, drawHeight * 0.96);
+  });
+  ctx.restore();
+
+  finishLayerTrail(layer);
+}
+
+function renderFilmMatteEffectLayer(layer, analysis, sourceFrameCanvas, mediaTime = 0, elapsed = 0) {
+  const ctx = layer.runtime.ctx;
+  const state = ensureLayerState(layer, analysis.width, analysis.height);
+  const frameCount = Math.max(3, Math.min(7, Math.round(layer.params.frameCount ?? 5)));
+  const loopDuration = clamp(layer.params.loopDuration ?? 3, 1, 6);
+  const offsetSpread = clamp(layer.params.offsetSpread ?? 1, 0.2, 2);
+  const framePadding = clamp(layer.params.framePadding ?? 18, 0, 48);
+  const grainIntensity = clamp(layer.params.grainIntensity ?? 0.24, 0, 1);
+  const flickerIntensity = clamp(layer.params.flickerIntensity ?? 0.2, 0, 1);
+
+  ctx.clearRect(0, 0, analysis.width, analysis.height);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, analysis.width, analysis.height);
+
+  if (!sourceFrameCanvas) {
+    finishLayerTrail(layer);
+    return;
+  }
+
+  const buffer = ensureFilmMatteBuffer(state, sourceFrameCanvas, loopDuration);
+  captureFilmMatteFrame(buffer, sourceFrameCanvas, mediaTime, loopDuration);
+
+  const phaseBase = ((mediaTime % loopDuration) + loopDuration) % loopDuration;
+  const offsetStep = (loopDuration / frameCount) * offsetSpread;
+  const slots = buildFilmMatteLayout(analysis.width, analysis.height, frameCount, framePadding);
+
+  slots.forEach((rect, index) => {
+    const variation = FILM_MATTE_VARIATIONS[index % FILM_MATTE_VARIATIONS.length];
+    const phase = (phaseBase + offsetStep * index) % loopDuration;
+    const frame = resolveFilmMatteBufferedFrame(buffer, phase, loopDuration) || sourceFrameCanvas;
+    const rotationJitter = (sampleValueNoise(index * 0.41, elapsed * 2.6, 733) - 0.5) * 2;
+    const flicker = (sampleValueNoise(index * 0.83 + 9, elapsed * 5.8, 877) - 0.5) * flickerIntensity;
+    const brightness = clamp(1 + (variation.brightness || 0) + flicker * 0.1, 0.84, 1.16);
+    const radius = Math.min(rect.width, rect.height) * 0.12;
+    const centerX = rect.x + rect.width * 0.5;
+    const centerY = rect.y + rect.height * 0.5;
+
+    ctx.save();
+    buildRoundedRectPath(ctx, rect.x, rect.y, rect.width, rect.height, radius);
+    ctx.clip();
+    ctx.fillStyle = "#030303";
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(((variation.rotation || 0) + rotationJitter * flickerIntensity * 0.8) * (Math.PI / 180));
+    ctx.filter = `brightness(${brightness.toFixed(3)}) contrast(1.03)`;
+    withHighImageSmoothing(ctx, () => {
+      drawImageCoverWithFocus(
+        ctx,
+        frame,
+        -rect.width * 0.5,
+        -rect.height * 0.5,
+        rect.width,
+        rect.height,
+        {
+          focusX: variation.focusX,
+          focusY: variation.focusY,
+          zoom: variation.zoom,
+        },
+      );
+    });
+    ctx.filter = "none";
+    ctx.restore();
+
+    const vignette = ctx.createRadialGradient(
+      centerX,
+      centerY,
+      Math.min(rect.width, rect.height) * 0.14,
+      centerX,
+      centerY,
+      Math.max(rect.width, rect.height) * 0.78,
+    );
+    vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+    vignette.addColorStop(0.72, "rgba(0, 0, 0, 0.08)");
+    vignette.addColorStop(1, `rgba(0, 0, 0, ${0.28 + flickerIntensity * 0.1})`);
+    ctx.globalCompositeOperation = "multiply";
+    ctx.fillStyle = vignette;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.globalCompositeOperation = "source-over";
+
+    drawFilmMatteGrain(ctx, rect, elapsed, grainIntensity, index);
+
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.012 + Math.max(0, flicker) * 0.06})`;
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.restore();
+
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.24)";
+    buildRoundedRectPath(ctx, rect.x, rect.y, rect.width, rect.height, radius);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  finishLayerTrail(layer);
+}
+
 function renderPrismExtrudeLayer(layer, analysis, elapsed = 0) {
   // Prism Extrude turns the source into stacked chromatic slabs so the frame feels like it has
   // been pulled into a translucent neon sculpture.
@@ -3894,6 +4433,8 @@ export function renderMotionVideoEffectLayer({
   layer,
   sourceImageData,
   elapsed,
+  mediaTime,
+  sourceFrameCanvas,
   previousSourceImageData,
   getQualityPreset,
   requestPreviewRefresh,
@@ -3919,6 +4460,16 @@ export function renderMotionVideoEffectLayer({
 
   if (layer.type === "datamoshSmear") {
     renderDatamoshSmearLayer(layer, analysis, preset, elapsed);
+    return true;
+  }
+
+  if (layer.type === "imageFlash") {
+    renderImageFlashLayer(layer, analysis, mediaTime, requestPreviewRefresh);
+    return true;
+  }
+
+  if (layer.type === "filmMatteEffect") {
+    renderFilmMatteEffectLayer(layer, analysis, sourceFrameCanvas, mediaTime, elapsed);
     return true;
   }
 

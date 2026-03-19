@@ -88,9 +88,21 @@ const RANDOM_EFFECT_GROUP_RULES = Object.freeze({
 });
 const PRESET_FILE_VERSION = 1;
 const PRESET_APP_ID = "motion-video-preset";
+const FPS_SAMPLE_WINDOW_MS = 500;
+const FPS_SMOOTHING = 0.32;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function smoothMetric(previous, next, amount = FPS_SMOOTHING) {
+  if (!Number.isFinite(next)) {
+    return previous;
+  }
+  if (!Number.isFinite(previous)) {
+    return next;
+  }
+  return previous + (next - previous) * amount;
 }
 
 function setOutput(output, value, digits = 2) {
@@ -326,6 +338,7 @@ export function createVideoWorkspace({
   const volumeOutput = document.getElementById("volume-output");
   const volumeButton = document.getElementById("volume-button");
   const qualityMeta = document.getElementById("quality-meta");
+  const fpsMeta = document.getElementById("fps-meta");
   const displayModeValue = document.getElementById("display-mode-value");
   const layersList = document.getElementById("layers-list");
   const layersEmpty = document.getElementById("layers-empty");
@@ -374,6 +387,20 @@ export function createVideoWorkspace({
   let selectedLayerId = null;
   let splitScreenMode = SPLIT_SCREEN_MODES.off;
   let targetFps = Math.max(1, Number(fpsSelect?.value || 30));
+  const fpsState = {
+    playbackFps: null,
+    previewFps: null,
+    droppedFps: null,
+    playbackSource: "quality",
+    lastPlaybackSampleAt: 0,
+    lastQualityTotalFrames: null,
+    lastQualityDroppedFrames: null,
+    previewFramesSinceSample: 0,
+    lastPreviewSampleAt: 0,
+    frameCallbackHandle: 0,
+    frameCallbackCount: 0,
+    lastFrameCallbackCount: 0,
+  };
 
   const volumeController = createVideoVolumeController({
     media: sourceVideo,
@@ -386,6 +413,215 @@ export function createVideoWorkspace({
     if (statusText) {
       statusText.textContent = message;
     }
+  }
+
+  function formatFpsValue(value) {
+    return Number.isFinite(value) ? value.toFixed(1) : "--";
+  }
+
+  function supportsPlaybackQuality() {
+    return typeof sourceVideo.getVideoPlaybackQuality === "function";
+  }
+
+  function supportsVideoFrameCallbacks() {
+    return typeof sourceVideo.requestVideoFrameCallback === "function";
+  }
+
+  function getPlaybackQualitySnapshot() {
+    if (!supportsPlaybackQuality()) {
+      return null;
+    }
+    const snapshot = sourceVideo.getVideoPlaybackQuality();
+    if (!snapshot) {
+      return null;
+    }
+    if (!Number.isFinite(snapshot.totalVideoFrames) || !Number.isFinite(snapshot.droppedVideoFrames)) {
+      return null;
+    }
+    return {
+      totalFrames: snapshot.totalVideoFrames,
+      droppedFrames: snapshot.droppedVideoFrames,
+    };
+  }
+
+  function updateFpsReadout() {
+    if (!fpsMeta) {
+      return;
+    }
+
+    if (!sourceVideo.src) {
+      fpsMeta.textContent = "Playback FPS: -- • Preview FPS: --";
+      return;
+    }
+
+    if (reversePlaybackHandle) {
+      fpsMeta.textContent = `Playback FPS: reverse/manual • Preview FPS: ${formatFpsValue(fpsState.previewFps)}`;
+      return;
+    }
+
+    const playbackLabel = sourceVideo.paused
+      ? "paused"
+      : Number.isFinite(fpsState.playbackFps)
+        ? fpsState.playbackFps.toFixed(1)
+        : "sampling...";
+    const previewLabel = sourceVideo.paused && !needsContinuousRender()
+      ? "--"
+      : Number.isFinite(fpsState.previewFps)
+        ? fpsState.previewFps.toFixed(1)
+        : "sampling...";
+    const parts = [
+      `Playback FPS: ${playbackLabel}`,
+      `Preview FPS: ${previewLabel}`,
+    ];
+
+    if (Number.isFinite(fpsState.droppedFps) && !sourceVideo.paused) {
+      parts.push(`Dropped: ${fpsState.droppedFps.toFixed(1)}/s`);
+    }
+
+    if (fpsState.playbackSource === "video-frame-callback") {
+      parts.push("Source: frame callback");
+    } else if (fpsState.playbackSource === "preview-fallback") {
+      parts.push("Source: preview fallback");
+    }
+
+    fpsMeta.textContent = parts.join(" • ");
+  }
+
+  function clearPlaybackSampling(keepPlaybackValue = false) {
+    fpsState.lastPlaybackSampleAt = 0;
+    fpsState.lastQualityTotalFrames = null;
+    fpsState.lastQualityDroppedFrames = null;
+    fpsState.lastFrameCallbackCount = fpsState.frameCallbackCount;
+    fpsState.droppedFps = null;
+    if (!keepPlaybackValue) {
+      fpsState.playbackFps = null;
+    }
+  }
+
+  function clearPreviewSampling() {
+    fpsState.lastPreviewSampleAt = 0;
+    fpsState.previewFramesSinceSample = 0;
+    fpsState.previewFps = null;
+  }
+
+  function resetFpsCounters() {
+    clearPlaybackSampling();
+    clearPreviewSampling();
+    updateFpsReadout();
+  }
+
+  function stopVideoFrameObserver() {
+    if (!fpsState.frameCallbackHandle) {
+      return;
+    }
+    if (typeof sourceVideo.cancelVideoFrameCallback === "function") {
+      sourceVideo.cancelVideoFrameCallback(fpsState.frameCallbackHandle);
+    }
+    fpsState.frameCallbackHandle = 0;
+  }
+
+  function handleVideoFrameCallback() {
+    fpsState.frameCallbackCount += 1;
+    fpsState.frameCallbackHandle = 0;
+    if (!sourceVideo.paused && sourceVideo.src && !supportsPlaybackQuality()) {
+      fpsState.frameCallbackHandle = sourceVideo.requestVideoFrameCallback(handleVideoFrameCallback);
+    }
+  }
+
+  function startVideoFrameObserver() {
+    if (supportsPlaybackQuality() || !supportsVideoFrameCallbacks() || fpsState.frameCallbackHandle) {
+      return;
+    }
+    fpsState.frameCallbackHandle = sourceVideo.requestVideoFrameCallback(handleVideoFrameCallback);
+  }
+
+  function samplePreviewFps(timestamp) {
+    fpsState.previewFramesSinceSample += 1;
+    if (!fpsState.lastPreviewSampleAt) {
+      fpsState.lastPreviewSampleAt = timestamp;
+      fpsState.previewFramesSinceSample = 0;
+      return;
+    }
+
+    const elapsedMs = timestamp - fpsState.lastPreviewSampleAt;
+    if (elapsedMs < FPS_SAMPLE_WINDOW_MS) {
+      return;
+    }
+
+    const previewFps = fpsState.previewFramesSinceSample / (elapsedMs / 1000);
+    fpsState.previewFps = smoothMetric(fpsState.previewFps, previewFps);
+    fpsState.previewFramesSinceSample = 0;
+    fpsState.lastPreviewSampleAt = timestamp;
+  }
+
+  function samplePlaybackFps(timestamp) {
+    if (!sourceVideo.src || sourceVideo.paused || reversePlaybackHandle) {
+      return;
+    }
+
+    const qualitySnapshot = getPlaybackQualitySnapshot();
+    if (qualitySnapshot) {
+      fpsState.playbackSource = "quality";
+      if (!fpsState.lastPlaybackSampleAt) {
+        fpsState.lastPlaybackSampleAt = timestamp;
+        fpsState.lastQualityTotalFrames = qualitySnapshot.totalFrames;
+        fpsState.lastQualityDroppedFrames = qualitySnapshot.droppedFrames;
+        return;
+      }
+
+      const elapsedMs = timestamp - fpsState.lastPlaybackSampleAt;
+      if (elapsedMs < FPS_SAMPLE_WINDOW_MS) {
+        return;
+      }
+
+      const totalDelta = qualitySnapshot.totalFrames - fpsState.lastQualityTotalFrames;
+      const droppedDelta = qualitySnapshot.droppedFrames - fpsState.lastQualityDroppedFrames;
+      if (totalDelta >= 0 && droppedDelta >= 0) {
+        const seconds = elapsedMs / 1000;
+        const playbackFps = Math.max(0, totalDelta - droppedDelta) / seconds;
+        const droppedFps = Math.max(0, droppedDelta) / seconds;
+        fpsState.playbackFps = smoothMetric(fpsState.playbackFps, playbackFps);
+        fpsState.droppedFps = smoothMetric(fpsState.droppedFps, droppedFps);
+      } else {
+        clearPlaybackSampling();
+      }
+
+      fpsState.lastPlaybackSampleAt = timestamp;
+      fpsState.lastQualityTotalFrames = qualitySnapshot.totalFrames;
+      fpsState.lastQualityDroppedFrames = qualitySnapshot.droppedFrames;
+      return;
+    }
+
+    if (supportsVideoFrameCallbacks()) {
+      fpsState.playbackSource = "video-frame-callback";
+      if (!fpsState.lastPlaybackSampleAt) {
+        fpsState.lastPlaybackSampleAt = timestamp;
+        fpsState.lastFrameCallbackCount = fpsState.frameCallbackCount;
+        return;
+      }
+
+      const elapsedMs = timestamp - fpsState.lastPlaybackSampleAt;
+      if (elapsedMs < FPS_SAMPLE_WINDOW_MS) {
+        return;
+      }
+
+      const frameDelta = fpsState.frameCallbackCount - fpsState.lastFrameCallbackCount;
+      if (frameDelta >= 0) {
+        const playbackFps = frameDelta / (elapsedMs / 1000);
+        fpsState.playbackFps = smoothMetric(fpsState.playbackFps, playbackFps);
+      } else {
+        clearPlaybackSampling();
+      }
+
+      fpsState.lastPlaybackSampleAt = timestamp;
+      fpsState.lastFrameCallbackCount = fpsState.frameCallbackCount;
+      fpsState.droppedFps = null;
+      return;
+    }
+
+    fpsState.playbackSource = "preview-fallback";
+    fpsState.playbackFps = fpsState.previewFps;
+    fpsState.droppedFps = null;
   }
 
   function markControlTouched(control, active = true) {
@@ -1133,6 +1369,8 @@ export function createVideoWorkspace({
       layer,
       sourceImageData,
       elapsed,
+      mediaTime: sourceVideo.currentTime || 0,
+      sourceFrameCanvas: sourceCanvas,
       previousSourceImageData,
       getQualityPreset,
       requestPreviewRefresh,
@@ -1216,6 +1454,9 @@ export function createVideoWorkspace({
     drawVideoFit(sourceVideo, sourceCtx);
     renderCompositeFrame(timestamp / 1000);
     drawOutputFrame();
+    samplePreviewFps(timestamp);
+    samplePlaybackFps(timestamp);
+    updateFpsReadout();
 
     if (needsContinuousRender()) {
       renderHandle = requestAnimationFrame(renderFrame);
@@ -1242,6 +1483,8 @@ export function createVideoWorkspace({
     cancelAnimationFrame(reversePlaybackHandle);
     reversePlaybackHandle = 0;
     reversePlaybackStamp = 0;
+    clearPlaybackSampling();
+    updateFpsReadout();
   }
 
   function updateDisplayModeReadout() {
@@ -1303,6 +1546,8 @@ export function createVideoWorkspace({
 
     stopReversePlayback();
     revokeActiveUrl();
+    stopVideoFrameObserver();
+    resetFpsCounters();
     volumeController.setAvailable(false);
     activeObjectUrl = URL.createObjectURL(file);
     sourceVideo.src = activeObjectUrl;
@@ -1335,6 +1580,7 @@ export function createVideoWorkspace({
       fileNameText.textContent = `${file.name} • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight} • ${sourceVideo.duration.toFixed(2)}s`;
     }
     setStatus("Video loaded. Base layer created.");
+    updateFpsReadout();
     requestPreviewRefresh();
 
     let autoplayBlocked = false;
@@ -1358,9 +1604,13 @@ export function createVideoWorkspace({
 
     if (sourceVideo.paused) {
       stopReversePlayback();
+      clearPlaybackSampling();
+      clearPreviewSampling();
+      startVideoFrameObserver();
       try {
         await sourceVideo.play();
         setStatus("Playback running.");
+        updateFpsReadout();
       } catch {
         setStatus("Playback could not start.");
       }
@@ -1368,9 +1618,13 @@ export function createVideoWorkspace({
     }
 
     sourceVideo.pause();
+    stopVideoFrameObserver();
     stopReversePlayback();
+    clearPlaybackSampling(true);
+    clearPreviewSampling();
     requestPreviewRefresh();
     setStatus("Playback paused.");
+    updateFpsReadout();
   }
 
   function stopPlayback() {
@@ -1379,8 +1633,10 @@ export function createVideoWorkspace({
       return;
     }
     sourceVideo.pause();
+    stopVideoFrameObserver();
     stopReversePlayback();
     sourceVideo.currentTime = 0;
+    resetFpsCounters();
     requestPreviewRefresh();
     setStatus("Playback stopped.");
   }
@@ -1392,9 +1648,13 @@ export function createVideoWorkspace({
     }
 
     sourceVideo.pause();
+    stopVideoFrameObserver();
     stopReversePlayback();
+    clearPlaybackSampling();
+    clearPreviewSampling();
     reversePlaybackStamp = 0;
     setStatus("Reverse playback running.");
+    updateFpsReadout();
     ensureLoop();
 
     const step = (timestamp) => {
@@ -1509,15 +1769,27 @@ export function createVideoWorkspace({
   }
 
   sourceVideo.addEventListener("play", () => {
+    startVideoFrameObserver();
+    clearPlaybackSampling();
+    clearPreviewSampling();
+    updateFpsReadout();
     ensureLoop();
   });
   sourceVideo.addEventListener("pause", () => {
+    stopVideoFrameObserver();
+    clearPlaybackSampling(true);
+    clearPreviewSampling();
+    updateFpsReadout();
     requestPreviewRefresh();
   });
   sourceVideo.addEventListener("seeked", () => {
+    clearPlaybackSampling();
+    updateFpsReadout();
     requestPreviewRefresh();
   });
   sourceVideo.addEventListener("loadeddata", () => {
+    clearPlaybackSampling();
+    updateFpsReadout();
     requestPreviewRefresh();
   });
 
@@ -1601,6 +1873,7 @@ export function createVideoWorkspace({
   });
 
   window.addEventListener("beforeunload", () => {
+    stopVideoFrameObserver();
     cleanupRecordingState();
     revokeActiveUrl();
     volumeController.setAvailable(false);
@@ -1614,6 +1887,7 @@ export function createVideoWorkspace({
   renderEffectRack();
   renderLayerList();
   syncLayerSelection();
+  updateFpsReadout();
   setStatus("Ready. Upload a video for motion playback and export.");
 
   return {
