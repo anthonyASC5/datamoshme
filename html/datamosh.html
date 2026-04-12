@@ -144,6 +144,10 @@
         margin-top: 14px;
       }
 
+      .panel.collapsed .panel-body {
+        display: none;
+      }
+
       .panel-head {
         display: flex;
         justify-content: space-between;
@@ -165,6 +169,18 @@
         color: var(--muted);
         font-size: 0.68rem;
         letter-spacing: 0.12em;
+      }
+
+      .panel-head button {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 0.62rem;
+        letter-spacing: 0.12em;
+        padding: 7px 10px;
+        cursor: pointer;
+        text-transform: uppercase;
       }
 
       .panel-body {
@@ -193,29 +209,157 @@
         display: none;
       }
 
-      .overlay {
+      .video-drop-button {
         position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        pointer-events: none;
-      }
-
-      .pill {
-        padding: 8px 12px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.9);
-        color: var(--text);
-        font-size: 0.68rem;
-        letter-spacing: 0.12em;
-      }
-
-      .pill.pixel {
+        inset: 0;
+        z-index: 2;
+        display: grid;
+        place-items: center;
+        gap: 8px;
+        width: 100%;
+        height: 100%;
+        padding: 24px;
+        border: 0;
+        background: transparent;
         color: var(--accent);
-        font-family: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .video-drop-button:hover .pixel-monster {
+        transform: translateY(-4px) rotate(-2deg);
+      }
+
+      .video-drop-button.drag-over .pixel-monster {
+        transform: translateY(-4px) scale(1.04);
+      }
+
+      .video-drop-button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -6px;
+      }
+
+      .video-drop-button.has-source {
+        inset: auto 12px 12px auto;
+        z-index: 4;
+        place-content: end;
+        place-items: end;
+        justify-items: end;
+        width: 86px;
+        height: 70px;
+        padding: 6px;
+        pointer-events: auto;
+      }
+
+      .video-drop-button.has-source .drop-copy {
+        display: none;
+      }
+
+      .video-drop-button.has-source .pixel-monster {
+        --pixel-size: 4px;
+        width: 44px;
+        height: 44px;
+        opacity: 0.84;
+        filter: drop-shadow(4px 4px 0 rgba(0, 0, 0, 0.28));
+      }
+
+      .video-drop-button.has-source .pixel-monster::before {
+        box-shadow: var(--pixel-shadow);
+      }
+
+      .pixel-monster {
+        --pixel-size: 7px;
+        --pixel-shadow:
+          2em 0em #d97213, 3em 0em #d97213, 4em 0em #d97213, 5em 0em #d97213, 6em 0em #d97213, 7em 0em #d97213, 8em 0em #d97213,
+          1em 1em #d97213, 2em 1em #ff8a1e, 3em 1em #ff8a1e, 4em 1em #ff8a1e, 5em 1em #ff8a1e, 6em 1em #ff8a1e, 7em 1em #ff8a1e, 8em 1em #ff8a1e, 9em 1em #d97213,
+          0em 2em #d97213, 1em 2em #ff8a1e, 2em 2em #ffffff, 3em 2em #ffffff, 4em 2em #ffffff, 5em 2em #ffffff, 6em 2em #ffffff, 7em 2em #ffffff, 8em 2em #ff8a1e, 9em 2em #ff8a1e, 10em 2em #d97213,
+          0em 3em #d97213, 1em 3em #ff8a1e, 2em 3em #ffffff, 3em 3em #ffffff, 4em 3em #2b2d2f, 5em 3em #2b2d2f, 6em 3em #ffffff, 7em 3em #ffffff, 8em 3em #ff8a1e, 9em 3em #ff8a1e, 10em 3em #d97213,
+          0em 4em #d97213, 1em 4em #ff8a1e, 2em 4em #ffffff, 3em 4em #ffffff, 4em 4em #2b2d2f, 5em 4em #2b2d2f, 6em 4em #2b2d2f, 7em 4em #ffffff, 8em 4em #ff8a1e, 9em 4em #ff8a1e, 10em 4em #d97213,
+          1em 5em #d97213, 2em 5em #ff8a1e, 3em 5em #ff8a1e, 4em 5em #ff8a1e, 5em 5em #ff8a1e, 6em 5em #ff8a1e, 7em 5em #ff8a1e, 8em 5em #ff8a1e, 9em 5em #d97213,
+          1em 6em #ff8a1e, 2em 6em #ff8a1e, 3em 6em #2b2d2f, 4em 6em #2b2d2f, 5em 6em #2b2d2f, 6em 6em #2b2d2f, 7em 6em #2b2d2f, 8em 6em #ff8a1e, 9em 6em #ff8a1e,
+          1em 7em #ff8a1e, 2em 7em #2b2d2f, 3em 7em #2b2d2f, 4em 7em #ffffff, 5em 7em #2b2d2f, 6em 7em #ffffff, 7em 7em #2b2d2f, 8em 7em #2b2d2f, 9em 7em #ff8a1e,
+          0em 8em #ff8a1e, 1em 8em #ff8a1e, 2em 8em #ff8a1e, 3em 8em #2b2d2f, 4em 8em #2b2d2f, 5em 8em #2b2d2f, 6em 8em #2b2d2f, 7em 8em #2b2d2f, 8em 8em #ff8a1e, 9em 8em #ff8a1e, 10em 8em #ff8a1e,
+          0em 9em #ff8a1e, 1em 9em #ff8a1e, 2em 9em #ff8a1e, 3em 9em #ff8a1e, 4em 9em #ff8a1e, 5em 9em #ff8a1e, 6em 9em #ff8a1e, 7em 9em #ff8a1e, 8em 9em #ff8a1e, 9em 9em #ff8a1e, 10em 9em #ff8a1e,
+          1em 10em #ff8a1e, 2em 10em #ff8a1e, 3em 10em #ff8a1e, 4em 10em #ff8a1e, 6em 10em #ff8a1e, 7em 10em #ff8a1e, 8em 10em #ff8a1e, 9em 10em #ff8a1e;
+        position: relative;
+        width: 77px;
+        height: 77px;
+        font-size: var(--pixel-size);
+        image-rendering: pixelated;
+        background: transparent;
+        filter: drop-shadow(6px 6px 0 rgba(0, 0, 0, 0.28));
+        transition: transform 160ms ease;
+      }
+
+      .pixel-monster::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: var(--pixel-size);
+        height: var(--pixel-size);
+        background: transparent;
+        box-shadow: var(--pixel-shadow);
+      }
+
+      .pixel-monster::after {
+        display: none;
+      }
+
+      .video-drop-button.drag-over .pixel-monster {
+        --pixel-shadow:
+          2em 0em #d97213, 3em 0em #d97213, 4em 0em #d97213, 5em 0em #d97213, 6em 0em #d97213, 7em 0em #d97213, 8em 0em #d97213,
+          1em 1em #d97213, 2em 1em #ff8a1e, 3em 1em #ff8a1e, 4em 1em #ff8a1e, 5em 1em #ff8a1e, 6em 1em #ff8a1e, 7em 1em #ff8a1e, 8em 1em #ff8a1e, 9em 1em #d97213,
+          0em 2em #d97213, 1em 2em #ff8a1e, 2em 2em #ffffff, 3em 2em #ffffff, 4em 2em #ffffff, 5em 2em #ffffff, 6em 2em #ffffff, 7em 2em #ffffff, 8em 2em #ff8a1e, 9em 2em #ff8a1e, 10em 2em #d97213,
+          0em 3em #d97213, 1em 3em #ff8a1e, 2em 3em #ffffff, 3em 3em #ffffff, 4em 3em #2b2d2f, 5em 3em #2b2d2f, 6em 3em #ffffff, 7em 3em #ffffff, 8em 3em #ff8a1e, 9em 3em #ff8a1e, 10em 3em #d97213,
+          0em 4em #d97213, 1em 4em #ff8a1e, 2em 4em #ffffff, 3em 4em #ffffff, 4em 4em #2b2d2f, 5em 4em #2b2d2f, 6em 4em #2b2d2f, 7em 4em #ffffff, 8em 4em #ff8a1e, 9em 4em #ff8a1e, 10em 4em #d97213,
+          1em 5em #d97213, 2em 5em #ff8a1e, 3em 5em #ff8a1e, 4em 5em #ff8a1e, 5em 5em #ff8a1e, 6em 5em #ff8a1e, 7em 5em #ff8a1e, 8em 5em #ff8a1e, 9em 5em #d97213,
+          1em 6em #ff8a1e, 2em 6em #ff8a1e, 3em 6em #2b2d2f, 4em 6em #2b2d2f, 5em 6em #2b2d2f, 6em 6em #2b2d2f, 7em 6em #2b2d2f, 8em 6em #ff8a1e, 9em 6em #ff8a1e,
+          1em 7em #ff8a1e, 2em 7em #2b2d2f, 3em 7em #2b2d2f, 4em 7em #ffffff, 5em 7em #2b2d2f, 6em 7em #ffffff, 7em 7em #2b2d2f, 8em 7em #2b2d2f, 9em 7em #ff8a1e,
+          0em 8em #ff8a1e, 1em 8em #ff8a1e, 2em 8em #2b2d2f, 3em 8em #2b2d2f, 4em 8em #2b2d2f, 5em 8em #2b2d2f, 6em 8em #2b2d2f, 7em 8em #2b2d2f, 8em 8em #2b2d2f, 9em 8em #ff8a1e, 10em 8em #ff8a1e,
+          0em 9em #ff8a1e, 1em 9em #ff8a1e, 2em 9em #2b2d2f, 3em 9em #ffffff, 4em 9em #2b2d2f, 5em 9em #2b2d2f, 6em 9em #2b2d2f, 7em 9em #ffffff, 8em 9em #2b2d2f, 9em 9em #ff8a1e, 10em 9em #ff8a1e,
+          1em 10em #ff8a1e, 2em 10em #ff8a1e, 3em 10em #ff8a1e, 4em 10em #2b2d2f, 5em 10em #2b2d2f, 6em 10em #2b2d2f, 7em 10em #ff8a1e, 8em 10em #ff8a1e, 9em 10em #ff8a1e;
+      }
+
+      .drop-copy {
+        max-width: min(480px, 82vw);
+        margin: 0;
+        padding: 8px 12px;
+        color: var(--accent-primary);
+        background: #000000;
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1.5;
+        letter-spacing: 0;
+        text-align: center;
+      }
+
+      .source-dock {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--accent-primary);
+      }
+
+      .source-status {
+        display: grid;
+        gap: 6px;
+      }
+
+      .log-panel {
+        border-color: #153a18;
+        background: #040704;
+      }
+
+      .log-panel .panel-head {
+        border-bottom-color: #153a18;
+        background: #071207;
+        color: #6cff6c;
+      }
+
+      .log-panel .panel-head span {
+        color: #32c832;
       }
 
       .button-grid,
@@ -236,9 +380,9 @@
         justify-content: center;
         min-height: 48px;
         padding: 0 14px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--accent-primary);
         background: transparent;
-        color: var(--text);
+        color: var(--text-primary);
         font: inherit;
         font-size: 0.86rem;
         font-weight: 600;
@@ -247,7 +391,7 @@
       }
 
       .button:hover {
-        background: var(--surface-muted);
+        background: var(--bg-elevated);
       }
 
       .button:disabled {
@@ -257,9 +401,9 @@
 
       .button.active,
       .button.primary {
-        border-color: var(--accent);
-        background: var(--accent);
-        color: var(--accent-text);
+        border-color: var(--accent-primary);
+        background: var(--accent-primary);
+        color: var(--bg-primary);
       }
 
       .slider-row {
@@ -270,7 +414,7 @@
       }
 
       .slider-row label {
-        color: var(--muted);
+        color: var(--text-muted);
         font-size: 0.68rem;
         letter-spacing: 0.12em;
         line-height: 1.5;
@@ -285,35 +429,33 @@
 
       input[type="range"]::-webkit-slider-runnable-track {
         height: 2px;
-        background: var(--line);
+        background: var(--accent-primary);
       }
 
       input[type="range"]::-webkit-slider-thumb {
         -webkit-appearance: none;
         width: 12px;
         height: 12px;
-        border: 1px solid var(--accent);
-        border-radius: 50%;
-        background: var(--accent);
+        border: 1px solid var(--accent-primary);
+        background: var(--accent-primary);
         margin-top: -5px;
       }
 
       input[type="range"]::-moz-range-track {
         height: 2px;
-        background: var(--line);
+        background: var(--accent-primary);
         border: 0;
       }
 
       input[type="range"]::-moz-range-thumb {
         width: 12px;
         height: 12px;
-        border: 1px solid var(--accent);
-        border-radius: 50%;
-        background: var(--accent);
+        border: 1px solid var(--accent-primary);
+        background: var(--accent-primary);
       }
 
       .slider-row output {
-        color: var(--text);
+        color: var(--text-primary);
         font-size: 0.78rem;
         text-align: right;
       }
@@ -321,7 +463,7 @@
       .meta,
       .note,
       pre {
-        color: var(--muted);
+        color: var(--text-muted);
         font-size: 0.78rem;
         line-height: 1.55;
       }
@@ -331,9 +473,20 @@
         max-height: 250px;
         overflow: auto;
         white-space: pre-wrap;
-        border: 1px solid var(--line);
+        border: 1px solid var(--accent-primary);
         padding: 12px;
-        background: var(--surface-muted);
+        background: var(--bg-elevated);
+      }
+
+      #log-output {
+        min-height: 112px;
+        border-color: #153a18;
+        background: #020402;
+        color: #73ff73;
+        font-size: 0.8rem;
+        line-height: 1.6;
+        text-shadow: 0 0 6px rgba(115, 255, 115, 0.55);
+        box-shadow: inset 0 0 0 1px rgba(115, 255, 115, 0.12);
       }
 
       @media (max-width: 1080px) {
@@ -343,7 +496,7 @@
 
         .stage {
           border-right: 0;
-          border-bottom: 1px solid var(--line);
+          border-bottom: 1px solid var(--accent-primary);
         }
       }
 
@@ -365,7 +518,6 @@
         <header class="titlebar">
           <h1>DATAMOSH</h1>
           <nav class="mode-tabs" aria-label="Modes">
-            <a class="mode-tab active" href="https://anthonyasc5.github.io/datamoshme/" aria-current="page">DATAMOSH</a>
             <a class="mode-tab mode-tab-logo" href="./crtvideo.html" aria-label="Open CRT WRLD VIDEO">
               <img src="../images/lallogo.png" alt="Pixel Earth Arcade" />
             </a>
@@ -382,36 +534,55 @@
                 <div class="stage-shell">
                   <canvas id="stage-canvas" width="1280" height="720"></canvas>
                   <video id="source-video" playsinline muted></video>
-                  <div class="overlay">
-                    <div class="pill pixel">WEBCODECS VP8</div>
-                    <div class="pill" id="status-text">CHOOSE WEBCAM OR IMPORT A VIDEO.</div>
-                  </div>
+                  <button class="video-drop-button" id="video-drop-button" type="button" aria-label="Drop or insert upload video files mp4">
+                    <span class="pixel-monster" aria-hidden="true"></span>
+                    <span class="drop-copy">drop / insert upload video files mp4)</span>
+                  </button>
                 </div>
+              </div>
+            </section>
+            <section class="panel collapsed" id="optimization-panel">
+              <div class="panel-head">
+                <h2>OPTIMIZATION HUD</h2>
+                <button id="optimization-toggle" type="button" aria-expanded="false">EXPAND</button>
+              </div>
+              <div class="panel-body">
+                <div class="button-grid">
+                  <button class="button" id="render-preset-low" type="button">RENDER 10% • 10 FPS</button>
+                  <button class="button primary" id="render-preset-mid" type="button">RENDER 30% • 20 FPS</button>
+                </div>
+                <p class="note" id="render-hud-status">DEFAULT: 30% RENDER SCALE WITH A 20 FPS CAP.</p>
+              </div>
+            </section>
+            <section class="panel log-panel">
+              <div class="panel-head">
+                <h2>LOG</h2>
+                <span>RUNTIME</span>
+              </div>
+              <div class="panel-body">
+                <pre id="log-output">DATAMOSH IDLE.</pre>
               </div>
             </section>
           </section>
           <aside class="controls">
             <section class="panel">
               <div class="panel-head">
-                <h2>SOURCE</h2>
-                <span>WEBCAM</span>
-              </div>
-              <div class="panel-body">
-                <div class="button-row">
-                  <button class="button primary" id="camera-button" type="button">USE CAMERA</button>
-                  <button class="button" id="import-button" type="button">UPLOAD VIDEO</button>
-                </div>
-                <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" />
-                <div class="meta" id="source-meta">NO SOURCE SELECTED.</div>
-                <p class="note">THIS MODE FOLLOWS THE SIMPLE WEBCODECS FLOW: SOURCE FRAME -> ENCODER -> CHUNK -> DECODER -> CANVAS OUTPUT. UPLOADED VIDEOS CAN BE MONITORED WITH VIDEO VOLUME. CAMERA INPUT STAYS SILENT.</p>
-              </div>
-            </section>
-            <section class="panel">
-              <div class="panel-head">
                 <h2>CONTROLS</h2>
                 <span>TRANSPORT + SPEED</span>
               </div>
               <div class="panel-body">
+                <div class="source-dock">
+                  <div class="button-row">
+                    <button class="button primary" id="camera-button" type="button">USE CAMERA</button>
+                    <button class="button" id="import-button" type="button">UPLOAD VIDEO</button>
+                  </div>
+                  <input id="file-input" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v" />
+                  <div class="source-status">
+                    <div class="meta" id="source-meta">NO SOURCE SELECTED.</div>
+                    <div class="meta" id="status-text">IDLE.</div>
+                  </div>
+                  <p class="note">SOURCE FRAMES FEED THE MOSH CANVAS. CAMERA STAYS SILENT. UPLOADED VIDEOS LOOP.</p>
+                </div>
                 <div class="button-row">
                   <button class="button" id="play-button" type="button">PLAY</button>
                   <button class="button" id="pause-button" type="button">PAUSE</button>
@@ -422,6 +593,9 @@
                   <button class="button" id="record-button" type="button">RECORD</button>
                 </div>
                 <div class="button-grid" style="margin-top: 12px;">
+                  <button class="button primary" id="datamosh-toggle" type="button">DATAMOSH ON</button>
+                </div>
+                <div class="button-grid" style="margin-top: 12px;">
                   <button class="button primary" id="reset-button" type="button">RESET KEYFRAME</button>
                 </div>
                 <div class="slider-grid" style="margin-top: 12px;">
@@ -430,24 +604,7 @@
                     <input id="speed-slider" type="range" min="1" max="12" step="1" value="2" />
                     <output id="speed-output">2</output>
                   </div>
-                  <div class="slider-row">
-                    <label for="volume-slider">VIDEO VOL</label>
-                    <input id="volume-slider" type="range" min="0" max="100" step="1" value="100" />
-                    <output id="volume-output">N/A</output>
-                  </div>
                 </div>
-                <div class="button-grid" style="margin-top: 12px;">
-                  <button class="button" id="volume-button" type="button" disabled>NO AUDIO</button>
-                </div>
-              </div>
-            </section>
-            <section class="panel">
-              <div class="panel-head">
-                <h2>LOG</h2>
-                <span>RUNTIME</span>
-              </div>
-              <div class="panel-body">
-                <pre id="log-output">DATAMOSH IDLE.</pre>
               </div>
             </section>
           </aside>

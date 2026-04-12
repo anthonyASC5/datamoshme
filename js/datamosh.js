@@ -1,5 +1,3 @@
-import { createVideoVolumeController } from "./video-volume.js";
-
 const stageCanvas = document.getElementById("stage-canvas");
 const sourceVideo = document.getElementById("source-video");
 const startButton = document.getElementById("camera-button");
@@ -10,18 +8,30 @@ const stopButton = document.getElementById("stop-button");
 const restartButton = document.getElementById("restart-button");
 const recordButton = document.getElementById("record-button");
 const resetButton = document.getElementById("reset-button");
+const datamoshToggle = document.getElementById("datamosh-toggle");
+const optimizationPanel = document.getElementById("optimization-panel");
+const optimizationToggle = document.getElementById("optimization-toggle");
+const renderPresetLowButton = document.getElementById("render-preset-low");
+const renderPresetMidButton = document.getElementById("render-preset-mid");
+const renderHudStatus = document.getElementById("render-hud-status");
 const fileInput = document.getElementById("file-input");
+const videoDropButton = document.getElementById("video-drop-button");
+const stageShell = document.querySelector(".stage-shell");
 const speedSlider = document.getElementById("speed-slider");
 const speedOutput = document.getElementById("speed-output");
-const volumeSlider = document.getElementById("volume-slider");
-const volumeOutput = document.getElementById("volume-output");
-const volumeButton = document.getElementById("volume-button");
 const statusText = document.getElementById("status-text");
 const timelineLabel = document.getElementById("timeline-label");
 const sourceMeta = document.getElementById("source-meta");
 const logOutput = document.getElementById("log-output");
 
 const stageCtx = stageCanvas.getContext("2d", { alpha: false });
+const renderCanvas = document.createElement("canvas");
+const renderCtx = renderCanvas.getContext("2d", { alpha: false });
+
+const RENDER_PRESETS = Object.freeze({
+  low: { label: "10% • 10 FPS", scale: 0.1, fpsCap: 10 },
+  mid: { label: "30% • 20 FPS", scale: 0.3, fpsCap: 20 },
+});
 
 let encoder = null;
 let decoder = null;
@@ -29,18 +39,18 @@ let animationFrame = 0;
 let isWebCodecsReady = false;
 let speed = 2;
 let useKeyFrame = false;
+let isDatamoshEnabled = true;
 let webcamStream = null;
 let fileObjectUrl = null;
 let activeSourceMode = "";
 let recorder = null;
 let recordedChunks = [];
 let recordingStream = null;
-const volumeController = createVideoVolumeController({
-  media: sourceVideo,
-  slider: volumeSlider,
-  output: volumeOutput,
-  toggleButton: volumeButton,
-});
+let activeRenderPresetKey = "mid";
+let renderScale = RENDER_PRESETS[activeRenderPresetKey].scale;
+let fpsCap = RENDER_PRESETS[activeRenderPresetKey].fpsCap;
+let lastRenderTime = 0;
+let dropMouthTimer = 0;
 
 function getRecordingMimeType() {
   const candidates = [
@@ -164,6 +174,15 @@ function appendLog(message) {
 function updateCanvasSize() {
   stageCanvas.width = Math.max(640, window.innerWidth);
   stageCanvas.height = Math.max(360, window.innerHeight);
+  syncRenderCanvasSize();
+}
+
+function syncRenderCanvasSize() {
+  const videoWidth = sourceVideo.videoWidth || 1280;
+  const videoHeight = sourceVideo.videoHeight || 720;
+  renderCanvas.width = Math.max(64, Math.round(videoWidth * renderScale));
+  renderCanvas.height = Math.max(36, Math.round(videoHeight * renderScale));
+  renderCtx.imageSmoothingEnabled = false;
 }
 
 function clearStage() {
@@ -171,9 +190,49 @@ function clearStage() {
   stageCtx.fillRect(0, 0, stageCanvas.width, stageCanvas.height);
 }
 
+function drawSourceToStage() {
+  stageCtx.clearRect(0, 0, stageCanvas.width, stageCanvas.height);
+  stageCtx.drawImage(sourceVideo, 0, 0, stageCanvas.width, stageCanvas.height);
+}
+
+function updateDatamoshToggle() {
+  datamoshToggle.textContent = isDatamoshEnabled ? "DATAMOSH ON" : "DATAMOSH OFF";
+  datamoshToggle.classList.toggle("primary", isDatamoshEnabled);
+}
+
+function updateOptimizationHud() {
+  renderPresetLowButton.classList.toggle("primary", activeRenderPresetKey === "low");
+  renderPresetMidButton.classList.toggle("primary", activeRenderPresetKey === "mid");
+  renderHudStatus.textContent = `ACTIVE: ${Math.round(renderScale * 100)}% RENDER SCALE WITH A ${fpsCap} FPS CAP.`;
+}
+
+function applyRenderPreset(presetKey) {
+  const preset = RENDER_PRESETS[presetKey];
+  if (!preset) {
+    return;
+  }
+
+  activeRenderPresetKey = presetKey;
+  renderScale = preset.scale;
+  fpsCap = preset.fpsCap;
+  syncRenderCanvasSize();
+  updateOptimizationHud();
+  useKeyFrame = true;
+  appendLog(`Render preset set to ${preset.label}.`);
+
+  if (activeSourceMode) {
+    setupWebCodecs().catch((error) => {
+      console.error(error);
+      setStatus("Render preset failed.");
+      appendLog(`ERROR: ${error.message}`);
+    });
+  }
+}
+
 function stopLoop() {
   cancelAnimationFrame(animationFrame);
   animationFrame = 0;
+  lastRenderTime = 0;
 }
 
 async function destroyCodecs() {
@@ -201,8 +260,6 @@ async function destroyCodecs() {
 }
 
 function stopSource() {
-  volumeController.setAvailable(false);
-
   if (webcamStream) {
     webcamStream.getTracks().forEach((track) => track.stop());
     webcamStream = null;
@@ -227,6 +284,44 @@ function sourceLabel() {
 function setSourceButtonState(mode) {
   startButton.classList.toggle("active", mode === "camera");
   importButton.classList.toggle("active", mode === "file");
+  videoDropButton?.classList.toggle("has-source", Boolean(mode));
+}
+
+function setDropMouthOpen(isOpen, duration = 0) {
+  window.clearTimeout(dropMouthTimer);
+  videoDropButton?.classList.toggle("drag-over", isOpen);
+
+  if (isOpen && duration > 0) {
+    dropMouthTimer = window.setTimeout(() => {
+      videoDropButton?.classList.remove("drag-over");
+    }, duration);
+  }
+}
+
+function isVideoUploadFile(file) {
+  const fileName = file?.name?.toLowerCase() || "";
+  return Boolean(file?.type?.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/.test(fileName));
+}
+
+function getVideoFileFromTransfer(dataTransfer) {
+  return Array.from(dataTransfer?.files || []).find(isVideoUploadFile) || null;
+}
+
+function handleUploadFile(file) {
+  if (!file) {
+    return;
+  }
+
+  if (!isVideoUploadFile(file)) {
+    setStatus("Choose an MP4, WebM, or MOV video file.");
+    return;
+  }
+
+  startDatamoshUpload(file).catch((error) => {
+    console.error(error);
+    setStatus("Upload failed.");
+    appendLog(`ERROR: ${error.message}`);
+  });
 }
 
 function cloneChunk(chunk) {
@@ -260,14 +355,40 @@ function handleDecodedFrame(frame) {
   frame.close();
 }
 
-function drawLoop() {
-  if (isWebCodecsReady && sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+function shouldRenderFrame(timestamp) {
+  if (!fpsCap || fpsCap <= 0) {
+    return true;
+  }
+
+  const frameInterval = 1000 / fpsCap;
+  if (timestamp - lastRenderTime < frameInterval) {
+    return false;
+  }
+
+  lastRenderTime = timestamp;
+  return true;
+}
+
+function getFrameTimestampUs(timestamp) {
+  return Math.max(0, Math.round(timestamp * 1000));
+}
+
+function drawLoop(timestamp = 0) {
+  if (sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && shouldRenderFrame(timestamp)) {
     try {
-      const frame = new VideoFrame(sourceVideo);
-      encoder.encode(frame, { keyFrame: useKeyFrame });
+      if (isDatamoshEnabled && isWebCodecsReady) {
+        renderCtx.drawImage(sourceVideo, 0, 0, renderCanvas.width, renderCanvas.height);
+        const frame = new VideoFrame(renderCanvas, {
+          timestamp: getFrameTimestampUs(timestamp),
+        });
+        encoder.encode(frame, { keyFrame: useKeyFrame });
+        frame.close();
+      } else {
+        drawSourceToStage();
+      }
+
       useKeyFrame = false;
-      frame.close();
-      setTimeline(`Live • x${speed}`);
+      setTimeline(`${isDatamoshEnabled ? "Datamosh" : "Clean"} • x${speed} • ${Math.round(renderScale * 100)}% • ${fpsCap} FPS`);
     } catch (error) {
       appendLog(`Frame encode skipped: ${error.message}`);
     }
@@ -289,7 +410,6 @@ async function startWebcam() {
   sourceVideo.srcObject = webcamStream;
   sourceVideo.muted = true;
   sourceVideo.playsInline = true;
-  volumeController.setAvailable(false);
 
   await new Promise((resolve) => {
     sourceVideo.onloadeddata = () => resolve();
@@ -297,6 +417,7 @@ async function startWebcam() {
 
   await sourceVideo.play();
   activeSourceMode = "camera";
+  syncRenderCanvasSize();
   setSourceButtonState("camera");
   sourceMeta.textContent = `Camera • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight}`;
   appendLog(`Camera ready: ${sourceMeta.textContent}`);
@@ -320,8 +441,8 @@ async function startUploadedVideo(file) {
     autoplayBlocked = true;
   }
 
-  volumeController.setAvailable(true);
   activeSourceMode = "file";
+  syncRenderCanvasSize();
   setSourceButtonState("file");
   sourceMeta.textContent = `${file.name} • ${sourceVideo.duration.toFixed(2)}s • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight}`;
   appendLog(`Video ready: ${sourceMeta.textContent}`);
@@ -330,7 +451,7 @@ async function startUploadedVideo(file) {
 
 async function setupWebCodecs() {
   if (!window.VideoEncoder || !window.VideoDecoder || !window.VideoFrame) {
-    throw new Error("This browser does not support VideoEncoder, VideoDecoder, and VideoFrame.");
+    throw new Error("This browser does not support the video codec tools needed for datamosh.");
   }
 
   await destroyCodecs();
@@ -346,8 +467,8 @@ async function setupWebCodecs() {
 
   encoder.configure({
     codec: "vp8",
-    width: stageCanvas.width,
-    height: stageCanvas.height,
+    width: renderCanvas.width,
+    height: renderCanvas.height,
   });
 
   decoder = new VideoDecoder({
@@ -361,7 +482,7 @@ async function setupWebCodecs() {
 
   decoder.configure({ codec: "vp8" });
   isWebCodecsReady = true;
-  appendLog(`WebCodecs ready at ${stageCanvas.width}x${stageCanvas.height}`);
+  appendLog(`Video codec ready at ${renderCanvas.width}x${renderCanvas.height}`);
 }
 
 async function startDatamoshVideo() {
@@ -393,6 +514,22 @@ async function playActiveSource() {
   }
   await sourceVideo.play();
   setStatus(`${sourceLabel()} playing.`);
+}
+
+async function handleVideoEnded() {
+  if (activeSourceMode !== "file") {
+    return;
+  }
+
+  sourceVideo.currentTime = 0;
+  useKeyFrame = true;
+  try {
+    await sourceVideo.play();
+    setStatus("Video looped.");
+  } catch (error) {
+    appendLog(`Loop restart blocked: ${error.message}`);
+    setStatus("Video ended. Press Play to restart.");
+  }
 }
 
 function pauseActiveSource() {
@@ -439,20 +576,46 @@ startButton.addEventListener("click", () => {
 });
 
 importButton.addEventListener("click", () => {
+  fileInput.value = "";
   fileInput.click();
 });
 
 fileInput.addEventListener("change", () => {
-  const file = fileInput.files?.[0];
+  handleUploadFile(fileInput.files?.[0]);
+});
+
+videoDropButton?.addEventListener("click", () => {
+  fileInput.value = "";
+  fileInput.click();
+});
+
+stageShell?.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  setDropMouthOpen(true);
+});
+
+stageShell?.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  setDropMouthOpen(true);
+});
+
+stageShell?.addEventListener("dragleave", (event) => {
+  if (!event.currentTarget.contains(event.relatedTarget)) {
+    setDropMouthOpen(false);
+  }
+});
+
+stageShell?.addEventListener("drop", (event) => {
+  event.preventDefault();
+  setDropMouthOpen(true, 700);
+  const file = getVideoFileFromTransfer(event.dataTransfer);
   if (!file) {
+    setStatus("Drop an MP4, WebM, or MOV video file.");
     return;
   }
 
-  startDatamoshUpload(file).catch((error) => {
-    console.error(error);
-    setStatus("Upload failed.");
-    appendLog(`ERROR: ${error.message}`);
-  });
+  handleUploadFile(file);
 });
 
 playButton.addEventListener("click", () => {
@@ -485,6 +648,27 @@ resetButton.addEventListener("click", () => {
   appendLog("Keyframe reset requested.");
 });
 
+datamoshToggle.addEventListener("click", () => {
+  isDatamoshEnabled = !isDatamoshEnabled;
+  useKeyFrame = true;
+  updateDatamoshToggle();
+  setStatus(isDatamoshEnabled ? "Datamosh enabled." : "Datamosh bypass enabled.");
+});
+
+optimizationToggle.addEventListener("click", () => {
+  const isCollapsed = optimizationPanel.classList.toggle("collapsed");
+  optimizationToggle.textContent = isCollapsed ? "EXPAND" : "MINIMIZE";
+  optimizationToggle.setAttribute("aria-expanded", String(!isCollapsed));
+});
+
+renderPresetLowButton.addEventListener("click", () => {
+  applyRenderPreset("low");
+});
+
+renderPresetMidButton.addEventListener("click", () => {
+  applyRenderPreset("mid");
+});
+
 recordButton.addEventListener("click", () => {
   if (recorder && recorder.state !== "inactive") {
     stopRecording();
@@ -497,6 +681,13 @@ recordButton.addEventListener("click", () => {
 speedSlider.addEventListener("input", () => {
   speed = Number(speedSlider.value);
   speedOutput.value = String(speed);
+});
+
+sourceVideo.addEventListener("ended", () => {
+  handleVideoEnded().catch((error) => {
+    console.error(error);
+    appendLog(`Loop error: ${error.message}`);
+  });
 });
 
 window.addEventListener("resize", async () => {
@@ -520,6 +711,8 @@ updateCanvasSize();
 clearStage();
 speedOutput.value = String(speed);
 setTimeline("Idle");
-setStatus("Use Camera or Upload Video to start.");
+setStatus("Idle.");
 appendLog("Datamosh ready.");
 setRecordingState(false);
+updateDatamoshToggle();
+updateOptimizationHud();

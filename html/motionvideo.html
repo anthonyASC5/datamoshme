@@ -45,13 +45,9 @@
         position: relative;
       }
 
-      body .site-home-logo {
-        display: none !important;
-      }
-
       .page {
         min-height: 100vh;
-        padding: 28px 18px;
+        padding: 80px 18px 28px;
         background:
           linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
           linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
@@ -592,6 +588,10 @@
       }
 
       @media (max-width: 1240px) {
+        .page {
+          padding-top: 88px;
+        }
+
         .layout {
           grid-template-columns: 1fr;
         }
@@ -603,7 +603,7 @@
 
       @media (max-width: 720px) {
         .page {
-          padding: 14px 10px;
+          padding: 76px 10px 14px;
         }
 
         .titlebar,

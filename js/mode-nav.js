@@ -1,12 +1,9 @@
 (function () {
+  const HOME_HREF = "../index.html";
   const TAB_CONFIG = [
-    { href: "./datamosh.html", label: "Data Mosh", pixel: true, aliases: ["./index.html", "./"] },
+    { href: HOME_HREF, label: "Data Mosh", pixel: true, aliases: ["./index.html", "./", "./datamosh.html"] },
     { href: "./crtvideo.html", label: "CRT Video", pixel: false },
     { href: "./motionvideo.html", label: "Motion Video", pixel: false },
-    { href: "./data1.html", label: "Data1", pixel: true },
-    { href: "./datamosh-v1.html", label: "V1", pixel: true },
-    { href: "./datamosh-v2.html", label: "V2", pixel: true },
-    { href: "./datamosh-v3.html", label: "V3", pixel: true },
   ];
 
   function ensurePixelFont() {
@@ -31,34 +28,66 @@
     style.textContent = `
       .site-home-logo {
         position: fixed;
-        top: 12px;
-        left: 12px;
+        top: 16px;
+        left: 16px;
         z-index: 999;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 10px 12px 8px;
-        border: 2px solid var(--line, rgba(255,255,255,0.16));
-        background: rgba(8, 8, 8, 0.9);
-        color: var(--text, #ffffff);
+        min-height: 48px;
+        padding: 12px 18px 10px;
+        border: 2px solid #ffd45b;
+        border-radius: 0;
+        background:
+          linear-gradient(180deg, #ffbf36 0%, #ff8a1e 45%, #ff6300 100%);
+        color: #fff8eb;
         text-decoration: none;
         text-transform: uppercase;
-        letter-spacing: 0.08rem;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-        backdrop-filter: blur(6px);
+        letter-spacing: 0.16rem;
+        box-shadow:
+          0 12px 30px rgba(255, 98, 0, 0.35),
+          inset 0 1px 0 rgba(255, 255, 255, 0.45),
+          inset 0 -2px 0 rgba(130, 40, 0, 0.28);
+        transition:
+          transform 180ms ease,
+          box-shadow 180ms ease,
+          filter 180ms ease;
       }
 
-      .site-home-logo.is-home {
-        border-color: #66ff7a;
+      .site-home-logo:hover,
+      .site-home-logo:focus-visible {
+        transform: translateY(-2px) scale(1.04);
+        filter: saturate(1.08);
         box-shadow:
-          0 8px 24px rgba(0, 0, 0, 0.28),
-          0 0 22px rgba(102, 255, 122, 0.22);
+          0 18px 36px rgba(255, 98, 0, 0.42),
+          0 0 24px rgba(255, 180, 64, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.55),
+          inset 0 -2px 0 rgba(130, 40, 0, 0.22);
       }
 
       .site-home-logo span {
         font-family: "Press Start 2P", "VT323", "Courier New", monospace;
         font-size: 0.72rem;
         line-height: 1.2;
+        text-shadow: 0 1px 0 rgba(120, 44, 0, 0.45);
+      }
+
+      .site-home-logo.is-home {
+        pointer-events: none;
+        opacity: 0.88;
+      }
+
+      @media (max-width: 760px) {
+        .site-home-logo {
+          top: 12px;
+          left: 12px;
+          min-height: 42px;
+          padding: 10px 14px 9px;
+        }
+
+        .site-home-logo span {
+          font-size: 0.62rem;
+        }
       }
     `;
     document.head.append(style);
@@ -97,12 +126,12 @@
 
     const logo = document.createElement("a");
     logo.className = "site-home-logo";
-    logo.href = "./datamosh.html";
+    logo.href = HOME_HREF;
     if (window.self !== window.top) {
       logo.target = "_top";
     }
     logo.setAttribute("aria-label", "Datamosh home");
-    logo.innerHTML = "<span>DATAMOSH</span>";
+    logo.innerHTML = "<span>MOSH!</span>";
     if (canonicalPath(window.location.pathname) === "./datamosh.html") {
       logo.classList.add("is-home");
     }
