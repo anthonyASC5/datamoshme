@@ -11,12 +11,13 @@ const resetButton = document.getElementById("reset-button");
 const datamoshToggle = document.getElementById("datamosh-toggle");
 const optimizationPanel = document.getElementById("optimization-panel");
 const optimizationToggle = document.getElementById("optimization-toggle");
-const renderPresetLowButton = document.getElementById("render-preset-low");
-const renderPresetMidButton = document.getElementById("render-preset-mid");
+const fpsSelect = document.getElementById("fps-select");
+const qualitySelect = document.getElementById("quality-select");
 const renderHudStatus = document.getElementById("render-hud-status");
 const fileInput = document.getElementById("file-input");
 const videoDropButton = document.getElementById("video-drop-button");
 const stageShell = document.querySelector(".stage-shell");
+const shell = document.querySelector(".shell");
 const speedSlider = document.getElementById("speed-slider");
 const speedOutput = document.getElementById("speed-output");
 const statusText = document.getElementById("status-text");
@@ -27,11 +28,6 @@ const logOutput = document.getElementById("log-output");
 const stageCtx = stageCanvas.getContext("2d", { alpha: false });
 const renderCanvas = document.createElement("canvas");
 const renderCtx = renderCanvas.getContext("2d", { alpha: false });
-
-const RENDER_PRESETS = Object.freeze({
-  low: { label: "10% • 10 FPS", scale: 0.1, fpsCap: 10 },
-  mid: { label: "30% • 20 FPS", scale: 0.3, fpsCap: 20 },
-});
 
 let encoder = null;
 let decoder = null;
@@ -46,9 +42,8 @@ let activeSourceMode = "";
 let recorder = null;
 let recordedChunks = [];
 let recordingStream = null;
-let activeRenderPresetKey = "mid";
-let renderScale = RENDER_PRESETS[activeRenderPresetKey].scale;
-let fpsCap = RENDER_PRESETS[activeRenderPresetKey].fpsCap;
+let renderScale = Number(qualitySelect?.value || 0.3);
+let fpsCap = Number(fpsSelect?.value || 30);
 let lastRenderTime = 0;
 let dropMouthTimer = 0;
 
@@ -69,8 +64,8 @@ function getRecordingMimeType() {
 }
 
 function setRecordingState(isRecording) {
-  recordButton.textContent = isRecording ? "Stop Rec" : "Record";
-  recordButton.classList.toggle("primary", isRecording);
+  recordButton.textContent = isRecording ? "STOP REC" : "RECORD WEBM";
+  recordButton.classList.toggle("button--primary", isRecording);
 }
 
 function downloadRecording(blob) {
@@ -87,23 +82,23 @@ function downloadRecording(blob) {
 
 function startRecording() {
   if (!activeSourceMode) {
-    setStatus("Load a source before recording.");
+    setStatus("NO SOURCE");
     return;
   }
 
   if (!stageCanvas.captureStream || !window.MediaRecorder) {
-    setStatus("Recording is not supported in this browser.");
-    appendLog("Recording unavailable: captureStream or MediaRecorder missing.");
+    setStatus("REC UNSUPPORTED");
+    appendLog("REC UNAVAILABLE / CAPTURESTREAM OR MEDIARECORDER MISSING");
     return;
   }
 
   if (recorder && recorder.state !== "inactive") {
-    setStatus("Recording already in progress.");
+    setStatus("REC ACTIVE");
     return;
   }
 
   const mimeType = getRecordingMimeType();
-  recordingStream = stageCanvas.captureStream(30);
+  recordingStream = stageCanvas.captureStream(fpsCap || 30);
   recordedChunks = [];
 
   recorder = new MediaRecorder(recordingStream, mimeType ? {
@@ -127,27 +122,27 @@ function startRecording() {
     setRecordingState(false);
 
     if (!blob.size) {
-      setStatus("Recording stopped, but no video was captured.");
-      appendLog("Recording stopped with no data.");
+      setStatus("REC EMPTY");
+      appendLog("REC STOP / NO DATA");
       return;
     }
 
     downloadRecording(blob);
-    setStatus("Recording stopped. Downloaded WebM.");
-    appendLog(`Recording saved (${Math.round(blob.size / 1024)} KB).`);
+    setStatus("REC SAVED");
+    appendLog(`REC SAVED / ${Math.round(blob.size / 1024)} KB`);
   });
 
   recorder.addEventListener("error", (event) => {
-    const message = event.error?.message || "Unknown recorder error.";
-    setStatus("Recording failed.");
-    appendLog(`Recording error: ${message}`);
+    const message = event.error?.message || "UNKNOWN REC ERROR";
+    setStatus("REC ERROR");
+    appendLog(`REC ERROR / ${message}`);
     setRecordingState(false);
   });
 
   recorder.start(250);
   setRecordingState(true);
-  setStatus("Recording stage output...");
-  appendLog(`Recording started${mimeType ? ` (${mimeType})` : ""}.`);
+  setStatus("REC ACTIVE");
+  appendLog(`REC START${mimeType ? ` / ${mimeType}` : ""}`);
 }
 
 function stopRecording() {
@@ -158,17 +153,37 @@ function stopRecording() {
   recorder.stop();
 }
 
+function normalizeUiText(message) {
+  return String(message).replace(/[•.]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+function getUiState(message) {
+  const normalized = normalizeUiText(message);
+  if (/\b(ERROR|FAILED|UNSUPPORTED|UNAVAILABLE)\b/.test(normalized)) {
+    return "error";
+  }
+  if (/\b(START|LOAD|REC ACTIVE|ENCODE|DECODE|RESET|PROCESS)\b/.test(normalized)) {
+    return "processing";
+  }
+  if (/\b(ACTIVE|RUNNING|PLAY|READY|SAVED|LOOP)\b/.test(normalized)) {
+    return "active";
+  }
+  return "idle";
+}
+
 function setStatus(message) {
-  statusText.textContent = message;
+  const normalized = normalizeUiText(message);
+  statusText.textContent = normalized;
+  shell?.setAttribute("data-state", getUiState(normalized));
 }
 
 function setTimeline(message) {
-  timelineLabel.textContent = message;
+  timelineLabel.textContent = normalizeUiText(message);
 }
 
 function appendLog(message) {
   const timestamp = new Date().toLocaleTimeString("en-US", { hour12: false });
-  logOutput.textContent = `[${timestamp}] ${message}\n${logOutput.textContent}`.slice(0, 16000);
+  logOutput.textContent = `[${timestamp}] ${normalizeUiText(message)}\n${logOutput.textContent}`.slice(0, 16000);
 }
 
 function updateCanvasSize() {
@@ -197,33 +212,25 @@ function drawSourceToStage() {
 
 function updateDatamoshToggle() {
   datamoshToggle.textContent = isDatamoshEnabled ? "DATAMOSH ON" : "DATAMOSH OFF";
-  datamoshToggle.classList.toggle("primary", isDatamoshEnabled);
+  datamoshToggle.classList.toggle("button--primary", isDatamoshEnabled);
 }
 
 function updateOptimizationHud() {
-  renderPresetLowButton.classList.toggle("primary", activeRenderPresetKey === "low");
-  renderPresetMidButton.classList.toggle("primary", activeRenderPresetKey === "mid");
-  renderHudStatus.textContent = `ACTIVE: ${Math.round(renderScale * 100)}% RENDER SCALE WITH A ${fpsCap} FPS CAP.`;
+  renderHudStatus.textContent = `${Math.round(renderScale * 100)}% / ${fpsCap} FPS`;
 }
 
-function applyRenderPreset(presetKey) {
-  const preset = RENDER_PRESETS[presetKey];
-  if (!preset) {
-    return;
-  }
-
-  activeRenderPresetKey = presetKey;
-  renderScale = preset.scale;
-  fpsCap = preset.fpsCap;
+function applyOptimizationSettings() {
+  renderScale = Number(qualitySelect?.value || renderScale);
+  fpsCap = Number(fpsSelect?.value || fpsCap);
   syncRenderCanvasSize();
   updateOptimizationHud();
   useKeyFrame = true;
-  appendLog(`Render preset set to ${preset.label}.`);
+  appendLog(`RENDER ${Math.round(renderScale * 100)}% / ${fpsCap} FPS`);
 
   if (activeSourceMode) {
     setupWebCodecs().catch((error) => {
       console.error(error);
-      setStatus("Render preset failed.");
+      setStatus("RENDER ERROR");
       appendLog(`ERROR: ${error.message}`);
     });
   }
@@ -242,7 +249,7 @@ async function destroyCodecs() {
     try {
       await encoder.flush();
     } catch (error) {
-      appendLog(`Encoder flush skipped: ${error.message}`);
+      appendLog(`ENCODER FLUSH SKIP / ${error.message}`);
     }
     encoder.close();
     encoder = null;
@@ -252,7 +259,7 @@ async function destroyCodecs() {
     try {
       await decoder.flush();
     } catch (error) {
-      appendLog(`Decoder flush skipped: ${error.message}`);
+      appendLog(`DECODER FLUSH SKIP / ${error.message}`);
     }
     decoder.close();
     decoder = null;
@@ -278,12 +285,14 @@ function stopSource() {
 }
 
 function sourceLabel() {
-  return activeSourceMode === "file" ? "Video" : "Camera";
+  return activeSourceMode === "file" ? "VIDEO" : "CAMERA";
 }
 
 function setSourceButtonState(mode) {
   startButton.classList.toggle("active", mode === "camera");
   importButton.classList.toggle("active", mode === "file");
+  startButton.classList.toggle("button--primary", mode === "camera");
+  importButton.classList.toggle("button--primary", mode === "file");
   videoDropButton?.classList.toggle("has-source", Boolean(mode));
 }
 
@@ -313,13 +322,13 @@ function handleUploadFile(file) {
   }
 
   if (!isVideoUploadFile(file)) {
-    setStatus("Choose an MP4, WebM, or MOV video file.");
+    setStatus("BAD FILE");
     return;
   }
 
   startDatamoshUpload(file).catch((error) => {
     console.error(error);
-    setStatus("Upload failed.");
+    setStatus("UPLOAD ERROR");
     appendLog(`ERROR: ${error.message}`);
   });
 }
@@ -388,9 +397,9 @@ function drawLoop(timestamp = 0) {
       }
 
       useKeyFrame = false;
-      setTimeline(`${isDatamoshEnabled ? "Datamosh" : "Clean"} • x${speed} • ${Math.round(renderScale * 100)}% • ${fpsCap} FPS`);
+      setTimeline(`${isDatamoshEnabled ? "DATAMOSH" : "CLEAN"} X${speed} ${Math.round(renderScale * 100)}% ${fpsCap} FPS`);
     } catch (error) {
-      appendLog(`Frame encode skipped: ${error.message}`);
+      appendLog(`FRAME SKIP / ${error.message}`);
     }
   }
 
@@ -419,8 +428,8 @@ async function startWebcam() {
   activeSourceMode = "camera";
   syncRenderCanvasSize();
   setSourceButtonState("camera");
-  sourceMeta.textContent = `Camera • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight}`;
-  appendLog(`Camera ready: ${sourceMeta.textContent}`);
+  sourceMeta.textContent = `CAMERA ${sourceVideo.videoWidth}X${sourceVideo.videoHeight}`;
+  appendLog(`CAMERA READY / ${sourceMeta.textContent}`);
 }
 
 async function startUploadedVideo(file) {
@@ -444,14 +453,14 @@ async function startUploadedVideo(file) {
   activeSourceMode = "file";
   syncRenderCanvasSize();
   setSourceButtonState("file");
-  sourceMeta.textContent = `${file.name} • ${sourceVideo.duration.toFixed(2)}s • ${sourceVideo.videoWidth}x${sourceVideo.videoHeight}`;
-  appendLog(`Video ready: ${sourceMeta.textContent}`);
+  sourceMeta.textContent = `VIDEO ${sourceVideo.videoWidth}X${sourceVideo.videoHeight} ${sourceVideo.duration.toFixed(2)}S`;
+  appendLog(`VIDEO READY / ${sourceMeta.textContent}`);
   return { autoplayBlocked };
 }
 
 async function setupWebCodecs() {
   if (!window.VideoEncoder || !window.VideoDecoder || !window.VideoFrame) {
-    throw new Error("This browser does not support the video codec tools needed for datamosh.");
+    throw new Error("VIDEO CODEC UNSUPPORTED");
   }
 
   await destroyCodecs();
@@ -460,8 +469,8 @@ async function setupWebCodecs() {
     output: handleEncodedChunk,
     error: (error) => {
       console.error("Encoder error:", error);
-      appendLog(`Encoder error: ${error.message}`);
-      setStatus("Encoder error.");
+      appendLog(`ENCODER ERROR / ${error.message}`);
+      setStatus("ENCODER ERROR");
     },
   });
 
@@ -475,45 +484,45 @@ async function setupWebCodecs() {
     output: handleDecodedFrame,
     error: (error) => {
       console.error("Decoder error:", error);
-      appendLog(`Decoder error: ${error.message}`);
-      setStatus("Decoder error.");
+      appendLog(`DECODER ERROR / ${error.message}`);
+      setStatus("DECODER ERROR");
     },
   });
 
   decoder.configure({ codec: "vp8" });
   isWebCodecsReady = true;
-  appendLog(`Video codec ready at ${renderCanvas.width}x${renderCanvas.height}`);
+  appendLog(`CODEC READY / ${renderCanvas.width}X${renderCanvas.height}`);
 }
 
 async function startDatamoshVideo() {
   stopLoop();
   clearStage();
-  setStatus("Starting webcam...");
+  setStatus("CAMERA START");
   stopSource();
   await startWebcam();
   await setupWebCodecs();
-  setStatus("Datamosh running.");
+  setStatus("DATAMOSH ACTIVE");
   drawLoop();
 }
 
 async function startDatamoshUpload(file) {
   stopLoop();
   clearStage();
-  setStatus("Loading uploaded video...");
+  setStatus("VIDEO LOAD");
   stopSource();
   const { autoplayBlocked } = await startUploadedVideo(file);
   await setupWebCodecs();
-  setStatus(autoplayBlocked ? "Video loaded. Press Play if autoplay is blocked." : "Datamosh running.");
+  setStatus(autoplayBlocked ? "PLAY REQUIRED" : "DATAMOSH ACTIVE");
   drawLoop();
 }
 
 async function playActiveSource() {
   if (!activeSourceMode) {
-    setStatus("Load a source first.");
+    setStatus("NO SOURCE");
     return;
   }
   await sourceVideo.play();
-  setStatus(`${sourceLabel()} playing.`);
+  setStatus(`${sourceLabel()} PLAY`);
 }
 
 async function handleVideoEnded() {
@@ -525,25 +534,25 @@ async function handleVideoEnded() {
   useKeyFrame = true;
   try {
     await sourceVideo.play();
-    setStatus("Video looped.");
+    setStatus("VIDEO LOOP");
   } catch (error) {
-    appendLog(`Loop restart blocked: ${error.message}`);
-    setStatus("Video ended. Press Play to restart.");
+    appendLog(`LOOP BLOCKED / ${error.message}`);
+    setStatus("PLAY REQUIRED");
   }
 }
 
 function pauseActiveSource() {
   if (!activeSourceMode) {
-    setStatus("Load a source first.");
+    setStatus("NO SOURCE");
     return;
   }
   sourceVideo.pause();
-  setStatus(`${sourceLabel()} paused.`);
+  setStatus(`${sourceLabel()} PAUSE`);
 }
 
 function stopActiveSource() {
   if (!activeSourceMode) {
-    setStatus("Load a source first.");
+    setStatus("NO SOURCE");
     return;
   }
   sourceVideo.pause();
@@ -551,12 +560,12 @@ function stopActiveSource() {
     sourceVideo.currentTime = 0;
   }
   useKeyFrame = true;
-  setStatus(`${sourceLabel()} stopped.`);
+  setStatus(`${sourceLabel()} STOP`);
 }
 
 async function restartActiveSource() {
   if (!activeSourceMode) {
-    setStatus("Load a source first.");
+    setStatus("NO SOURCE");
     return;
   }
   if (activeSourceMode === "file") {
@@ -564,13 +573,13 @@ async function restartActiveSource() {
   }
   useKeyFrame = true;
   await sourceVideo.play();
-  setStatus(`${sourceLabel()} restarted.`);
+  setStatus(`${sourceLabel()} RESTART`);
 }
 
 startButton.addEventListener("click", () => {
   startDatamoshVideo().catch((error) => {
     console.error(error);
-    setStatus("Camera start failed.");
+    setStatus("CAMERA ERROR");
     appendLog(`ERROR: ${error.message}`);
   });
 });
@@ -611,7 +620,7 @@ stageShell?.addEventListener("drop", (event) => {
   setDropMouthOpen(true, 700);
   const file = getVideoFileFromTransfer(event.dataTransfer);
   if (!file) {
-    setStatus("Drop an MP4, WebM, or MOV video file.");
+    setStatus("BAD FILE");
     return;
   }
 
@@ -621,7 +630,7 @@ stageShell?.addEventListener("drop", (event) => {
 playButton.addEventListener("click", () => {
   playActiveSource().catch((error) => {
     console.error(error);
-    setStatus("Play failed.");
+    setStatus("PLAY ERROR");
     appendLog(`ERROR: ${error.message}`);
   });
 });
@@ -637,22 +646,22 @@ stopButton.addEventListener("click", () => {
 restartButton.addEventListener("click", () => {
   restartActiveSource().catch((error) => {
     console.error(error);
-    setStatus("Restart failed.");
+    setStatus("RESTART ERROR");
     appendLog(`ERROR: ${error.message}`);
   });
 });
 
 resetButton.addEventListener("click", () => {
   useKeyFrame = true;
-  setStatus("Next frame forced as keyframe.");
-  appendLog("Keyframe reset requested.");
+  setStatus("KEYFRAME RESET");
+  appendLog("KEYFRAME RESET");
 });
 
 datamoshToggle.addEventListener("click", () => {
   isDatamoshEnabled = !isDatamoshEnabled;
   useKeyFrame = true;
   updateDatamoshToggle();
-  setStatus(isDatamoshEnabled ? "Datamosh enabled." : "Datamosh bypass enabled.");
+  setStatus(isDatamoshEnabled ? "DATAMOSH ACTIVE" : "CLEAN ACTIVE");
 });
 
 optimizationToggle.addEventListener("click", () => {
@@ -661,13 +670,9 @@ optimizationToggle.addEventListener("click", () => {
   optimizationToggle.setAttribute("aria-expanded", String(!isCollapsed));
 });
 
-renderPresetLowButton.addEventListener("click", () => {
-  applyRenderPreset("low");
-});
+fpsSelect?.addEventListener("change", applyOptimizationSettings);
 
-renderPresetMidButton.addEventListener("click", () => {
-  applyRenderPreset("mid");
-});
+qualitySelect?.addEventListener("change", applyOptimizationSettings);
 
 recordButton.addEventListener("click", () => {
   if (recorder && recorder.state !== "inactive") {
@@ -686,7 +691,7 @@ speedSlider.addEventListener("input", () => {
 sourceVideo.addEventListener("ended", () => {
   handleVideoEnded().catch((error) => {
     console.error(error);
-    appendLog(`Loop error: ${error.message}`);
+    appendLog(`LOOP ERROR / ${error.message}`);
   });
 });
 
@@ -710,9 +715,10 @@ window.addEventListener("beforeunload", async () => {
 updateCanvasSize();
 clearStage();
 speedOutput.value = String(speed);
-setTimeline("Idle");
-setStatus("Idle.");
-appendLog("Datamosh ready.");
+setTimeline("IDLE");
+setStatus("IDLE");
+appendLog("DATAMOSH READY");
 setRecordingState(false);
+setSourceButtonState("");
 updateDatamoshToggle();
 updateOptimizationHud();

@@ -222,6 +222,8 @@ export function createLayerEditor({
     `;
   }
 
+
+
   function createInlineToggle(label, key, checked) {
     return `
       <div class="layer-inline-row">
@@ -234,6 +236,7 @@ export function createLayerEditor({
     `;
   }
 
+  
   function buildInlineControls(layer) {
     if (layer.type === "crt") {
       return createInlineSlider("Edge Glow", "edgeGlow", layer.params.edgeGlow, 0, 1, 0.01);
