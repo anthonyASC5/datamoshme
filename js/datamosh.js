@@ -1,3 +1,5 @@
+import { createVideoVolumeController } from "./video-volume.js";
+
 const stageCanvas = document.getElementById("stage-canvas");
 const sourceVideo = document.getElementById("source-video");
 const startButton = document.getElementById("camera-button");
@@ -8,7 +10,10 @@ const stopButton = document.getElementById("stop-button");
 const restartButton = document.getElementById("restart-button");
 const recordButton = document.getElementById("record-button");
 const resetButton = document.getElementById("reset-button");
+const splitVerticalButton = document.getElementById("split-vertical-button");
+const splitHorizontalButton = document.getElementById("split-horizontal-button");
 const datamoshToggle = document.getElementById("datamosh-toggle");
+const audioToggle = document.getElementById("audio-toggle");
 const optimizationPanel = document.getElementById("optimization-panel");
 const optimizationToggle = document.getElementById("optimization-toggle");
 const fpsSelect = document.getElementById("fps-select");
@@ -24,10 +29,31 @@ const statusText = document.getElementById("status-text");
 const timelineLabel = document.getElementById("timeline-label");
 const sourceMeta = document.getElementById("source-meta");
 const logOutput = document.getElementById("log-output");
+const frameCounter = document.getElementById("frame-counter");
+const editorControls = Array.from(document.querySelectorAll("[data-editor-control]"));
+const curveCanvas = document.getElementById("curve-canvas");
+const curveOutput = document.getElementById("curve-output");
+const curveCtx = curveCanvas?.getContext("2d");
 
 const stageCtx = stageCanvas.getContext("2d", { alpha: false });
 const renderCanvas = document.createElement("canvas");
 const renderCtx = renderCanvas.getContext("2d", { alpha: false });
+const moshCanvas = document.createElement("canvas");
+const moshCtx = moshCanvas.getContext("2d", { alpha: false });
+const editCanvas = document.createElement("canvas");
+const editCtx = editCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
+const SPLIT_MODES = Object.freeze({
+  off: "off",
+  vertical: "vertical",
+  horizontal: "horizontal",
+});
+const EDITOR_DEFAULTS = Object.freeze({
+  brightness: 0,
+  contrast: 100,
+  highlights: 0,
+  curve: 0,
+  sharpness: 0,
+});
 
 let encoder = null;
 let decoder = null;
@@ -46,6 +72,28 @@ let renderScale = Number(qualitySelect?.value || 0.3);
 let fpsCap = Number(fpsSelect?.value || 30);
 let lastRenderTime = 0;
 let dropMouthTimer = 0;
+let splitMode = SPLIT_MODES.off;
+let hasMoshFrame = false;
+let isDraggingCurve = false;
+const curvePoint = { x: 0.5, y: 0.5 };
+const editorState = { ...EDITOR_DEFAULTS };
+const frameStats = {
+  output: 0,
+  editor: 0,
+  decoded: 0,
+  skipped: 0,
+  errors: 0,
+  mediaTotal: 0,
+  mediaDropped: 0,
+};
+const volumeController = createVideoVolumeController({
+  media: sourceVideo,
+  toggleButton: audioToggle,
+  defaultVolume: 0,
+  muteLabel: "MUTE AUDIO",
+  unmuteLabel: "UNMUTE AUDIO",
+  unavailableLabel: "NO AUDIO",
+});
 
 function getRecordingMimeType() {
   const candidates = [
@@ -181,15 +229,60 @@ function setTimeline(message) {
   timelineLabel.textContent = normalizeUiText(message);
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function appendLog(message) {
   const timestamp = new Date().toLocaleTimeString("en-US", { hour12: false });
   logOutput.textContent = `[${timestamp}] ${normalizeUiText(message)}\n${logOutput.textContent}`.slice(0, 16000);
 }
 
+function refreshFrameCounter() {
+  if (!frameCounter) {
+    return;
+  }
+
+  const quality = sourceVideo.getVideoPlaybackQuality?.();
+  if (quality) {
+    frameStats.mediaTotal = quality.totalVideoFrames || 0;
+    frameStats.mediaDropped = quality.droppedVideoFrames || 0;
+  }
+
+  frameCounter.textContent = [
+    `FRAME ${frameStats.output}`,
+    `EDIT ${frameStats.editor}`,
+    `DECODE ${frameStats.decoded}`,
+    `SKIP ${frameStats.skipped}`,
+    `DROP ${frameStats.mediaDropped}/${frameStats.mediaTotal}`,
+    `ERR ${frameStats.errors}`,
+  ].join(" / ");
+}
+
+function resetFrameStats() {
+  Object.keys(frameStats).forEach((key) => {
+    frameStats[key] = 0;
+  });
+  refreshFrameCounter();
+}
+
 function updateCanvasSize() {
   stageCanvas.width = Math.max(640, window.innerWidth);
   stageCanvas.height = Math.max(360, window.innerHeight);
+  moshCanvas.width = stageCanvas.width;
+  moshCanvas.height = stageCanvas.height;
+  moshCtx.imageSmoothingEnabled = false;
   syncRenderCanvasSize();
+}
+
+function syncEditCanvasSize(width, height) {
+  const targetWidth = Math.max(1, Math.round(width));
+  const targetHeight = Math.max(1, Math.round(height));
+  if (editCanvas.width !== targetWidth || editCanvas.height !== targetHeight) {
+    editCanvas.width = targetWidth;
+    editCanvas.height = targetHeight;
+  }
+  editCtx.imageSmoothingEnabled = false;
 }
 
 function syncRenderCanvasSize() {
@@ -203,11 +296,133 @@ function syncRenderCanvasSize() {
 function clearStage() {
   stageCtx.fillStyle = "#000000";
   stageCtx.fillRect(0, 0, stageCanvas.width, stageCanvas.height);
+  moshCtx.fillStyle = "#000000";
+  moshCtx.fillRect(0, 0, moshCanvas.width, moshCanvas.height);
+  hasMoshFrame = false;
 }
 
-function drawSourceToStage() {
+function drawFrameToRect(source, x, y, width, height) {
+  stageCtx.drawImage(source, x, y, width, height);
+}
+
+function hasEditorAdjustments() {
+  return Object.entries(EDITOR_DEFAULTS).some(([key, value]) => editorState[key] !== value);
+}
+
+function applySharpness(data, width, height, amount) {
+  if (amount <= 0 || width < 3 || height < 3) {
+    return;
+  }
+
+  const source = new Uint8ClampedArray(data);
+  const strength = amount / 100;
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const index = (y * width + x) * 4;
+
+      for (let channel = 0; channel < 3; channel += 1) {
+        const center = source[index + channel];
+        const blur = (
+          source[index - 4 + channel] +
+          source[index + 4 + channel] +
+          source[index - width * 4 + channel] +
+          source[index + width * 4 + channel]
+        ) * 0.25;
+        data[index + channel] = clamp(center + (center - blur) * strength, 0, 255);
+      }
+    }
+  }
+}
+
+function applyEditorAdjustments() {
+  if (!hasEditorAdjustments()) {
+    return;
+  }
+
+  const width = editCanvas.width;
+  const height = editCanvas.height;
+  const imageData = editCtx.getImageData(0, 0, width, height);
+  const { data } = imageData;
+  const brightness = editorState.brightness * 2.55;
+  const contrast = editorState.contrast / 100;
+  const highlights = editorState.highlights * 2.55;
+  const curve = editorState.curve / 100;
+
+  for (let index = 0; index < data.length; index += 4) {
+    for (let channel = 0; channel < 3; channel += 1) {
+      let value = data[index + channel];
+      value = (value - 128) * contrast + 128 + brightness;
+
+      const highlightMask = clamp((value - 128) / 127, 0, 1);
+      value += highlights * highlightMask;
+
+      if (curve !== 0) {
+        const lift = curve > 0 ? curve * 34 : 0;
+        const crush = curve < 0 ? -curve * 34 : 0;
+        value = ((value - lift) / Math.max(1, 255 - lift - crush)) * 255;
+        const normalized = clamp(value / 255, 0, 1);
+        const sCurve = normalized * normalized * (3 - 2 * normalized);
+        const flatCurve = 0.5 + (normalized - 0.5) * 0.55;
+        const target = curve > 0 ? sCurve : flatCurve;
+        value = (normalized + (target - normalized) * Math.abs(curve)) * 255;
+      }
+
+      data[index + channel] = clamp(value, 0, 255);
+    }
+  }
+
+  applySharpness(data, width, height, editorState.sharpness);
+  editCtx.putImageData(imageData, 0, 0);
+}
+
+function drawEditedFrameToRect(source, x, y, width, height) {
+  syncEditCanvasSize(width, height);
+  editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
+  editCtx.drawImage(source, 0, 0, editCanvas.width, editCanvas.height);
+  applyEditorAdjustments();
+  stageCtx.drawImage(editCanvas, x, y, width, height);
+  frameStats.editor += 1;
+}
+
+function drawOutputFrame(editedSource = sourceVideo) {
+  const editedFrame = editedSource || sourceVideo;
   stageCtx.clearRect(0, 0, stageCanvas.width, stageCanvas.height);
-  stageCtx.drawImage(sourceVideo, 0, 0, stageCanvas.width, stageCanvas.height);
+  stageCtx.fillStyle = "#000000";
+  stageCtx.fillRect(0, 0, stageCanvas.width, stageCanvas.height);
+
+  if (splitMode === SPLIT_MODES.vertical) {
+    const halfWidth = stageCanvas.width / 2;
+    drawEditedFrameToRect(editedFrame, 0, 0, halfWidth, stageCanvas.height);
+    drawFrameToRect(sourceVideo, halfWidth, 0, halfWidth, stageCanvas.height);
+    return;
+  }
+
+  if (splitMode === SPLIT_MODES.horizontal) {
+    const halfHeight = stageCanvas.height / 2;
+    drawFrameToRect(sourceVideo, 0, 0, stageCanvas.width, halfHeight);
+    drawEditedFrameToRect(editedFrame, 0, halfHeight, stageCanvas.width, halfHeight);
+    return;
+  }
+
+  drawEditedFrameToRect(editedFrame, 0, 0, stageCanvas.width, stageCanvas.height);
+}
+
+function updateSplitButtons() {
+  splitVerticalButton?.classList.toggle("button--primary", splitMode === SPLIT_MODES.vertical);
+  splitHorizontalButton?.classList.toggle("button--primary", splitMode === SPLIT_MODES.horizontal);
+}
+
+function setSplitMode(nextMode) {
+  splitMode = splitMode === nextMode ? SPLIT_MODES.off : nextMode;
+  updateSplitButtons();
+  useKeyFrame = true;
+
+  if (sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    drawOutputFrame(hasMoshFrame ? moshCanvas : sourceVideo);
+  }
+
+  setStatus(splitMode === SPLIT_MODES.off ? "SPLIT OFF" : `${splitMode} SPLIT`);
 }
 
 function updateDatamoshToggle() {
@@ -217,6 +432,154 @@ function updateDatamoshToggle() {
 
 function updateOptimizationHud() {
   renderHudStatus.textContent = `${Math.round(renderScale * 100)}% / ${fpsCap} FPS`;
+}
+
+function refreshPausedFrame() {
+  if (sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    drawOutputFrame(hasMoshFrame ? moshCanvas : sourceVideo);
+  }
+}
+
+function syncEditorControl(control) {
+  const key = control.dataset.editorControl;
+  const value = Number(control.value);
+  editorState[key] = value;
+  const output = document.getElementById(`${key}-output`);
+  if (output) {
+    output.value = String(value);
+    output.textContent = String(value);
+  }
+}
+
+function bindEditorControls() {
+  editorControls.forEach((control) => {
+    syncEditorControl(control);
+    control.addEventListener("input", () => {
+      syncEditorControl(control);
+      useKeyFrame = true;
+      refreshPausedFrame();
+    });
+  });
+}
+
+function drawCurveGraph() {
+  if (!curveCanvas || !curveCtx) {
+    return;
+  }
+
+  const width = curveCanvas.width;
+  const height = curveCanvas.height;
+  curveCtx.clearRect(0, 0, width, height);
+  curveCtx.fillStyle = "#000000";
+  curveCtx.fillRect(0, 0, width, height);
+  curveCtx.lineWidth = 1;
+  curveCtx.strokeStyle = "rgba(128, 128, 128, 0.55)";
+
+  for (let step = 1; step < 4; step += 1) {
+    const x = (width / 4) * step;
+    const y = (height / 4) * step;
+    curveCtx.beginPath();
+    curveCtx.moveTo(x, 0);
+    curveCtx.lineTo(x, height);
+    curveCtx.moveTo(0, y);
+    curveCtx.lineTo(width, y);
+    curveCtx.stroke();
+  }
+
+  curveCtx.strokeStyle = "rgba(120, 120, 120, 0.7)";
+  curveCtx.beginPath();
+  curveCtx.moveTo(0, height);
+  curveCtx.lineTo(width, 0);
+  curveCtx.stroke();
+
+  const pointX = curvePoint.x * width;
+  const pointY = curvePoint.y * height;
+  curveCtx.lineWidth = 2;
+  curveCtx.strokeStyle = "#ff1d00";
+  curveCtx.shadowColor = "#ff3b00";
+  curveCtx.shadowBlur = 8;
+  curveCtx.beginPath();
+  curveCtx.moveTo(0, height);
+  curveCtx.lineTo(pointX, pointY);
+  curveCtx.lineTo(width, 0);
+  curveCtx.stroke();
+  curveCtx.shadowBlur = 0;
+
+  curveCtx.fillStyle = "#ff3b00";
+  curveCtx.strokeStyle = "#ffffff";
+  curveCtx.lineWidth = 1;
+  curveCtx.beginPath();
+  curveCtx.rect(pointX - 3, pointY - 3, 6, 6);
+  curveCtx.fill();
+  curveCtx.stroke();
+}
+
+function syncCurveOutput() {
+  if (curveOutput) {
+    curveOutput.value = String(editorState.curve);
+    curveOutput.textContent = String(editorState.curve);
+  }
+  curveCanvas?.setAttribute("aria-valuenow", String(editorState.curve));
+}
+
+function setCurveValue(value) {
+  editorState.curve = Math.round(clamp(value, -100, 100));
+  curvePoint.x = 0.5;
+  curvePoint.y = clamp(0.5 - (editorState.curve / 200), 0.05, 0.95);
+  syncCurveOutput();
+  drawCurveGraph();
+  useKeyFrame = true;
+  refreshPausedFrame();
+}
+
+function setCurveFromPointer(event) {
+  if (!curveCanvas) {
+    return;
+  }
+
+  const bounds = curveCanvas.getBoundingClientRect();
+  curvePoint.x = clamp((event.clientX - bounds.left) / bounds.width, 0.05, 0.95);
+  curvePoint.y = clamp((event.clientY - bounds.top) / bounds.height, 0.05, 0.95);
+  const diagonalY = 1 - curvePoint.x;
+  editorState.curve = Math.round(clamp((diagonalY - curvePoint.y) * 200, -100, 100));
+  syncCurveOutput();
+  drawCurveGraph();
+  useKeyFrame = true;
+  refreshPausedFrame();
+}
+
+function bindCurveEditor() {
+  syncCurveOutput();
+  drawCurveGraph();
+
+  curveCanvas?.addEventListener("pointerdown", (event) => {
+    isDraggingCurve = true;
+    curveCanvas.setPointerCapture?.(event.pointerId);
+    setCurveFromPointer(event);
+  });
+
+  curveCanvas?.addEventListener("pointermove", (event) => {
+    if (isDraggingCurve) {
+      setCurveFromPointer(event);
+    }
+  });
+
+  curveCanvas?.addEventListener("pointerup", () => {
+    isDraggingCurve = false;
+  });
+
+  curveCanvas?.addEventListener("pointercancel", () => {
+    isDraggingCurve = false;
+  });
+
+  curveCanvas?.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : -1;
+    setCurveValue(editorState.curve + direction * 5);
+  });
 }
 
 function applyOptimizationSettings() {
@@ -282,6 +645,8 @@ function stopSource() {
   sourceVideo.removeAttribute("src");
   sourceVideo.load();
   activeSourceMode = "";
+  volumeController.setAvailable(false);
+  hasMoshFrame = false;
 }
 
 function sourceLabel() {
@@ -359,8 +724,11 @@ function handleEncodedChunk(chunk) {
 }
 
 function handleDecodedFrame(frame) {
-  stageCtx.clearRect(0, 0, stageCanvas.width, stageCanvas.height);
-  stageCtx.drawImage(frame, 0, 0, stageCanvas.width, stageCanvas.height);
+  moshCtx.clearRect(0, 0, moshCanvas.width, moshCanvas.height);
+  moshCtx.drawImage(frame, 0, 0, moshCanvas.width, moshCanvas.height);
+  hasMoshFrame = true;
+  frameStats.decoded += 1;
+  drawOutputFrame(moshCanvas);
   frame.close();
 }
 
@@ -371,6 +739,8 @@ function shouldRenderFrame(timestamp) {
 
   const frameInterval = 1000 / fpsCap;
   if (timestamp - lastRenderTime < frameInterval) {
+    frameStats.skipped += 1;
+    refreshFrameCounter();
     return false;
   }
 
@@ -393,12 +763,16 @@ function drawLoop(timestamp = 0) {
         encoder.encode(frame, { keyFrame: useKeyFrame });
         frame.close();
       } else {
-        drawSourceToStage();
+        drawOutputFrame(sourceVideo);
       }
 
       useKeyFrame = false;
+      frameStats.output += 1;
+      refreshFrameCounter();
       setTimeline(`${isDatamoshEnabled ? "DATAMOSH" : "CLEAN"} X${speed} ${Math.round(renderScale * 100)}% ${fpsCap} FPS`);
     } catch (error) {
+      frameStats.errors += 1;
+      refreshFrameCounter();
       appendLog(`FRAME SKIP / ${error.message}`);
     }
   }
@@ -417,8 +791,8 @@ async function startWebcam() {
   });
 
   sourceVideo.srcObject = webcamStream;
-  sourceVideo.muted = true;
   sourceVideo.playsInline = true;
+  volumeController.setAvailable(false);
 
   await new Promise((resolve) => {
     sourceVideo.onloadeddata = () => resolve();
@@ -435,9 +809,10 @@ async function startWebcam() {
 async function startUploadedVideo(file) {
   fileObjectUrl = URL.createObjectURL(file);
   sourceVideo.src = fileObjectUrl;
-  sourceVideo.muted = true;
   sourceVideo.playsInline = true;
   sourceVideo.loop = false;
+  volumeController.setVolume(0);
+  volumeController.setAvailable(true);
 
   await new Promise((resolve) => {
     sourceVideo.onloadeddata = () => resolve();
@@ -497,6 +872,7 @@ async function setupWebCodecs() {
 async function startDatamoshVideo() {
   stopLoop();
   clearStage();
+  resetFrameStats();
   setStatus("CAMERA START");
   stopSource();
   await startWebcam();
@@ -508,6 +884,7 @@ async function startDatamoshVideo() {
 async function startDatamoshUpload(file) {
   stopLoop();
   clearStage();
+  resetFrameStats();
   setStatus("VIDEO LOAD");
   stopSource();
   const { autoplayBlocked } = await startUploadedVideo(file);
@@ -657,6 +1034,14 @@ resetButton.addEventListener("click", () => {
   appendLog("KEYFRAME RESET");
 });
 
+splitVerticalButton?.addEventListener("click", () => {
+  setSplitMode(SPLIT_MODES.vertical);
+});
+
+splitHorizontalButton?.addEventListener("click", () => {
+  setSplitMode(SPLIT_MODES.horizontal);
+});
+
 datamoshToggle.addEventListener("click", () => {
   isDatamoshEnabled = !isDatamoshEnabled;
   useKeyFrame = true;
@@ -666,8 +1051,9 @@ datamoshToggle.addEventListener("click", () => {
 
 optimizationToggle.addEventListener("click", () => {
   const isCollapsed = optimizationPanel.classList.toggle("collapsed");
-  optimizationToggle.textContent = isCollapsed ? "EXPAND" : "MINIMIZE";
+  optimizationToggle.textContent = isCollapsed ? "+" : "-";
   optimizationToggle.setAttribute("aria-expanded", String(!isCollapsed));
+  optimizationToggle.setAttribute("aria-label", isCollapsed ? "Expand optimize panel" : "Collapse optimize panel");
 });
 
 fpsSelect?.addEventListener("change", applyOptimizationSettings);
@@ -720,5 +1106,9 @@ setStatus("IDLE");
 appendLog("DATAMOSH READY");
 setRecordingState(false);
 setSourceButtonState("");
+updateSplitButtons();
 updateDatamoshToggle();
 updateOptimizationHud();
+bindEditorControls();
+bindCurveEditor();
+refreshFrameCounter();
