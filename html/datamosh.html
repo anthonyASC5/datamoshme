@@ -145,7 +145,8 @@
         z-index: 1000;
         display: none;
         place-items: center;
-        background: #008080;
+        overflow: hidden;
+        background: #020716;
         color: #000000;
         font-family: "Tahoma", "MS Sans Serif", "Segoe UI", sans-serif;
         letter-spacing: 0;
@@ -156,12 +157,38 @@
         display: grid;
       }
 
+      .vfx-loader-portal {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: #020716;
+      }
+
+      .vfx-loader::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at center, rgba(70, 185, 255, 0.18), transparent 34%),
+          linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.32));
+        mix-blend-mode: screen;
+      }
+
       .vfx-loader-window {
+        position: relative;
+        z-index: 1;
         width: min(420px, calc(100vw - 32px));
         border: 2px solid;
         border-color: #ffffff #404040 #404040 #ffffff;
         background: #c0c0c0;
-        box-shadow: inset 1px 1px 0 #dfdfdf, inset -1px -1px 0 #808080;
+        box-shadow:
+          0 0 48px rgba(33, 178, 255, 0.38),
+          0 0 0 1px rgba(255, 255, 255, 0.18),
+          inset 1px 1px 0 #dfdfdf,
+          inset -1px -1px 0 #808080;
       }
 
       .vfx-loader-title {
@@ -223,6 +250,43 @@
         color: #000000;
       }
 
+      body.vfx-collapse-active {
+        overflow: hidden;
+      }
+
+      body.vfx-collapse-active .page {
+        background-image: radial-gradient(#8a8a8a 1px, transparent 1px);
+        filter: grayscale(1);
+      }
+
+      body.vfx-collapse-active .shell {
+        opacity: 0;
+      }
+
+      .vfx-fall-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 999;
+        overflow: hidden;
+        pointer-events: none;
+        filter: grayscale(1);
+      }
+
+      .vfx-fall-snapshot {
+        position: absolute !important;
+        margin: 0 !important;
+        transform-origin: center center;
+        filter: grayscale(1) contrast(0.9);
+        will-change: transform, opacity;
+      }
+
+      .vfx-fall-snapshot *,
+      .vfx-fall-snapshot *::before,
+      .vfx-fall-snapshot *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+
       .header-status {
         justify-content: space-between;
         color: var(--success);
@@ -249,6 +313,9 @@
 
       .controls {
         grid-column: span 4;
+        display: grid;
+        align-content: start;
+        gap: 12px;
       }
 
       .panel {
@@ -297,6 +364,12 @@
         color: var(--text-primary);
         padding: 6px 8px;
         cursor: pointer;
+      }
+
+      .panel-head-tools {
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
 
       .stage-shell {
@@ -445,6 +518,10 @@
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
 
+      .preset-button-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
       .icon-button {
         font-size: 1rem;
         line-height: 1;
@@ -479,6 +556,35 @@
 
       .button:disabled:hover {
         background: transparent;
+      }
+
+      .button--small {
+        min-height: 32px;
+        padding: 6px 8px;
+        font-size: 0.72rem;
+      }
+
+      .white-grade-button {
+        min-height: 34px;
+        background: #ffffff;
+        color: #000000;
+        border-color: #ffffff;
+      }
+
+      .white-grade-button:hover {
+        background: #ffffff;
+        color: #000000;
+      }
+
+      .white-grade-button.is-active {
+        background: #000000;
+        color: #ffffff;
+        border-color: #ffffff;
+      }
+
+      .white-grade-button.is-active:hover {
+        background: #000000;
+        color: #ffffff;
       }
 
       .slider-row {
@@ -611,22 +717,6 @@
         margin-bottom: 0;
       }
 
-      .curve-row {
-        grid-template-columns: 80px minmax(120px, 1fr) 44px;
-      }
-
-      .curve-graph {
-        width: 100%;
-        height: 42px;
-        border: 1px solid rgba(255, 59, 0, 0.85);
-        background: #000000;
-        cursor: crosshair;
-        touch-action: none;
-        box-shadow:
-          0 0 10px rgba(255, 59, 0, 0.55),
-          inset 0 0 10px rgba(255, 59, 0, 0.14);
-      }
-
       .log::after {
         content: "_";
         animation: cursor-blink 1s steps(2) infinite;
@@ -742,6 +832,7 @@
                     <select id="fps-select">
                       <option value="3">3 FPS</option>
                       <option value="10">10 FPS</option>
+                      <option value="24">24 FPS</option>
                       <option value="25">25 FPS</option>
                       <option value="30" selected>30 FPS</option>
                       <option value="60">60 FPS</option>
@@ -763,49 +854,12 @@
               </div>
             </section>
             <section class="panel log-panel">
-              <div class="hud-grid">
-                <div>
-                  <div class="panel-head">
-                    <h2>LOG</h2>
-                    <span>RUNTIME</span>
-                  </div>
-                  <div class="frame-counter" id="frame-counter">FRAME 0 / EDIT 0 / DECODE 0 / SKIP 0</div>
-                  <pre class="log" id="log-output">DATAMOSH IDLE</pre>
-                </div>
-                <div class="editor-hud">
-                  <div class="panel-head">
-                    <h2>VIDEO EDITOR</h2>
-                    <span>GRADE</span>
-                  </div>
-                  <div class="slider-grid">
-                    <div class="slider-row">
-                      <label for="brightness-slider">BRIGHT</label>
-                      <input id="brightness-slider" data-editor-control="brightness" type="range" min="-100" max="100" step="1" value="0" />
-                      <output id="brightness-output">0</output>
-                    </div>
-                    <div class="slider-row">
-                      <label for="contrast-slider">CONTRAST</label>
-                      <input id="contrast-slider" data-editor-control="contrast" type="range" min="50" max="180" step="1" value="100" />
-                      <output id="contrast-output">100</output>
-                    </div>
-                    <div class="slider-row">
-                      <label for="highlights-slider">HI</label>
-                      <input id="highlights-slider" data-editor-control="highlights" type="range" min="-100" max="100" step="1" value="0" />
-                      <output id="highlights-output">0</output>
-                    </div>
-                    <div class="slider-row curve-row">
-                      <label for="curve-canvas">CURVE</label>
-                      <canvas class="curve-graph" id="curve-canvas" width="220" height="42" role="slider" tabindex="0" aria-label="Curve levels graph" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0"></canvas>
-                      <output id="curve-output">0</output>
-                    </div>
-                    <div class="slider-row">
-                      <label for="sharpness-slider">SHARP</label>
-                      <input id="sharpness-slider" data-editor-control="sharpness" type="range" min="0" max="100" step="1" value="0" />
-                      <output id="sharpness-output">0</output>
-                    </div>
-                  </div>
-                </div>
+              <div class="panel-head">
+                <h2>LOG</h2>
+                <span>RUNTIME</span>
               </div>
+              <div class="frame-counter" id="frame-counter">FRAME 0 / EDIT 0 / DECODE 0 / SKIP 0</div>
+              <pre class="log" id="log-output">DATAMOSH IDLE</pre>
             </section>
           </section>
           <aside class="controls">
@@ -849,6 +903,11 @@
                   <button class="button" id="split-vertical-button" type="button">VERTICAL SPLIT</button>
                   <button class="button" id="split-horizontal-button" type="button">HORIZONTAL SPLIT</button>
                 </div>
+                <div class="button-row preset-button-row control-stack" aria-label="Mosh preset">
+                  <button class="button button--small button--primary" type="button" data-mosh-preset="default">DEFAULT</button>
+                  <button class="button button--small" type="button" data-mosh-preset="heavy">HEAVY</button>
+                  <button class="button button--small" type="button" data-mosh-preset="controlled">TRAILS</button>
+                </div>
                 <div class="slider-grid control-stack">
                   <div class="slider-row">
                     <label for="speed-slider">SPEED</label>
@@ -858,10 +917,60 @@
                 </div>
               </div>
             </section>
+            <section class="panel panel--idle collapsed" id="video-editor-panel">
+              <div class="panel-head">
+                <h2>VIDEO EDITOR</h2>
+                <div class="panel-head-tools">
+                  <span>GRADE</span>
+                  <button id="video-editor-toggle" type="button" aria-expanded="false" aria-label="Expand video editor panel">+</button>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="editor-hud">
+                  <div class="select-grid control-stack">
+                    <div class="select-row">
+                      <label for="mosh-blend-mode-select">BLEND</label>
+                      <select id="mosh-blend-mode-select">
+                        <option value="source-over" selected>NORMAL</option>
+                        <option value="difference">DIFFERENCE</option>
+                        <option value="exclusion">EXCLUSION</option>
+                        <option value="screen">SCREEN</option>
+                        <option value="darken">DARKEN</option>
+                        <option value="multiply">MULTIPLY</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="slider-grid">
+                    <div class="slider-row">
+                      <label for="brightness-slider">BRIGHT</label>
+                      <input id="brightness-slider" data-editor-control="brightness" type="range" min="-100" max="100" step="1" value="0" />
+                      <output id="brightness-output">0</output>
+                    </div>
+                    <div class="slider-row">
+                      <label for="contrast-slider">CONTRAST</label>
+                      <input id="contrast-slider" data-editor-control="contrast" type="range" min="50" max="180" step="1" value="100" />
+                      <output id="contrast-output">100</output>
+                    </div>
+                    <div class="slider-row">
+                      <label for="highlights-slider">HI</label>
+                      <input id="highlights-slider" data-editor-control="highlights" type="range" min="-100" max="100" step="1" value="0" />
+                      <output id="highlights-output">0</output>
+                    </div>
+                    <div class="slider-row">
+                      <label for="sharpness-slider">SHARP</label>
+                      <input id="sharpness-slider" data-editor-control="sharpness" type="range" min="0" max="100" step="1" value="0" />
+                      <output id="sharpness-output">0</output>
+                    </div>
+                    <button class="button white-grade-button" id="bw-grit-toggle" type="button" aria-pressed="false">B/W GRIT</button>
+                  </div>
+                </div>
+              </div>
+            </section>
           </aside>
         </main>
       </div>
       <div class="vfx-loader" id="vfx-loader" aria-hidden="true">
+        <canvas class="vfx-loader-portal" id="vfx-loader-portal" width="3840" height="2160" aria-hidden="true"></canvas>
         <div class="vfx-loader-window" role="status" aria-live="polite">
           <div class="vfx-loader-title">VFX 98</div>
           <div class="vfx-loader-body">
@@ -886,14 +995,194 @@
       const vfxLoader = document.getElementById("vfx-loader");
       const vfxLoaderBar = document.getElementById("vfx-loader-bar");
       const vfxLoaderProgress = document.getElementById("vfx-loader-progress");
+      const vfxLoaderPortal = document.getElementById("vfx-loader-portal");
+      const vfxLoaderPortalCtx = vfxLoaderPortal?.getContext("2d");
       let vfxLoaderTimer = 0;
+      let vfxNavigateTimer = 0;
+      let vfxPortalFrame = 0;
+      let vfxPortalStartedAt = 0;
+      let vfxTransitionStarted = false;
+      const VFX_FALL_DURATION = 2300;
+      const VFX_LOADER_DURATION = 3800;
+      const VFX_PORTAL_WIDTH = 3840;
+      const VFX_PORTAL_HEIGHT = 2160;
+      const VFX_PORTAL_CENTER_X = VFX_PORTAL_WIDTH / 2;
+      const VFX_PORTAL_CENTER_Y = VFX_PORTAL_HEIGHT / 2;
+      const VFX_PORTAL_STREAKS = Array.from({ length: 260 }, (_, index) => ({
+        angle: (index / 260) * Math.PI * 2 + ((index * 13) % 17) * 0.012,
+        phase: ((index * 97) % 1000) / 1000,
+        radius: 0.25 + ((index * 53) % 1000) / 1000,
+        speed: 0.42 + ((index * 29) % 100) / 100,
+        width: 2 + ((index * 11) % 5),
+        hue: 198 + ((index * 7) % 58),
+      }));
 
-      vfx98Link?.addEventListener("click", (event) => {
-        event.preventDefault();
+      function scrubCloneIds(root) {
+        root.removeAttribute("id");
+        root.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+      }
+
+      function createVfxFallOverlay() {
+        document.querySelector(".vfx-fall-overlay")?.remove();
+
+        const overlay = document.createElement("div");
+        overlay.className = "vfx-fall-overlay";
+        const targets = Array.from(document.querySelectorAll(".brand, .mode-tabs, .header-status, .panel"));
+
+        targets.forEach((target, index) => {
+          const rect = target.getBoundingClientRect();
+          if (rect.width < 2 || rect.height < 2) {
+            return;
+          }
+
+          const clone = target.cloneNode(true);
+          scrubCloneIds(clone);
+          clone.classList.add("vfx-fall-snapshot");
+          clone.style.left = `${rect.left}px`;
+          clone.style.top = `${rect.top}px`;
+          clone.style.width = `${rect.width}px`;
+          clone.style.height = `${rect.height}px`;
+          clone.style.minHeight = "0";
+          clone.style.maxWidth = "none";
+          clone.style.boxSizing = "border-box";
+          overlay.append(clone);
+
+          const pileY = Math.max(32, window.innerHeight - rect.top - rect.height + 22 + ((index * 19) % 92));
+          const pileX = ((index % 7) - 3) * 18 + ((index * 11) % 17);
+          const spin = ((index % 2 === 0 ? 1 : -1) * (10 + ((index * 13) % 28)));
+          const delay = index * 55;
+
+          clone.animate(
+            [
+              { transform: "translate3d(0, 0, 0) rotate(0deg)", opacity: 1, offset: 0 },
+              {
+                transform: `translate3d(${pileX * 0.2}px, ${Math.max(90, pileY * 0.58)}px, 0) rotate(${spin * 0.55}deg)`,
+                opacity: 1,
+                offset: 0.72,
+              },
+              {
+                transform: `translate3d(${pileX}px, ${pileY}px, 0) rotate(${spin}deg)`,
+                opacity: 0.94,
+                offset: 0.86,
+              },
+              {
+                transform: `translate3d(${pileX * 1.1}px, ${pileY - 18}px, 0) rotate(${spin * 0.92}deg)`,
+                opacity: 0.94,
+                offset: 0.92,
+              },
+              {
+                transform: `translate3d(${pileX}px, ${pileY}px, 0) rotate(${spin}deg)`,
+                opacity: 0.9,
+                offset: 1,
+              },
+            ],
+            {
+              duration: VFX_FALL_DURATION - 620,
+              delay,
+              easing: "cubic-bezier(0.16, 0.78, 0.28, 1.08)",
+              fill: "forwards",
+            }
+          );
+        });
+
+        document.body.append(overlay);
+        document.body.classList.add("vfx-collapse-active");
+        return overlay;
+      }
+
+      function drawVfxPortal(time) {
+        if (!vfxLoaderPortalCtx || !vfxLoader?.classList.contains("is-active")) {
+          return;
+        }
+
+        const elapsed = (time - vfxPortalStartedAt) / 1000;
+        const ctx = vfxLoaderPortalCtx;
+        const pulse = Math.sin(elapsed * 2.4) * 0.5 + 0.5;
+
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "rgba(2, 7, 22, 0.34)";
+        ctx.fillRect(0, 0, VFX_PORTAL_WIDTH, VFX_PORTAL_HEIGHT);
+
+        const space = ctx.createRadialGradient(
+          VFX_PORTAL_CENTER_X,
+          VFX_PORTAL_CENTER_Y,
+          20,
+          VFX_PORTAL_CENTER_X,
+          VFX_PORTAL_CENTER_Y,
+          VFX_PORTAL_WIDTH * 0.62
+        );
+        space.addColorStop(0, "rgba(140, 235, 255, 0.24)");
+        space.addColorStop(0.18, "rgba(18, 92, 190, 0.32)");
+        space.addColorStop(0.46, "rgba(1, 18, 62, 0.66)");
+        space.addColorStop(1, "rgba(0, 0, 0, 0.92)");
+        ctx.fillStyle = space;
+        ctx.fillRect(0, 0, VFX_PORTAL_WIDTH, VFX_PORTAL_HEIGHT);
+
+        ctx.save();
+        ctx.translate(VFX_PORTAL_CENTER_X, VFX_PORTAL_CENTER_Y);
+        ctx.rotate(elapsed * 0.08);
+        ctx.globalCompositeOperation = "lighter";
+
+        for (let ring = 0; ring < 7; ring += 1) {
+          const radius = 120 + ring * 74 + pulse * 28;
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(${30 + ring * 18}, ${150 + ring * 10}, 255, ${0.1 + ring * 0.025})`;
+          ctx.lineWidth = 5 + ring * 2;
+          ctx.ellipse(0, 0, radius * 1.82, radius, elapsed * 0.2 + ring * 0.32, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        for (const streak of VFX_PORTAL_STREAKS) {
+          const travel = (streak.radius + elapsed * streak.speed * 0.42 + streak.phase) % 1;
+          const ease = travel * travel;
+          const length = 82 + ease * 980;
+          const start = 34 + ease * 1780;
+          const wobble = Math.sin(elapsed * 1.5 + streak.phase * 8) * 0.035;
+          const angle = streak.angle + wobble;
+          const x1 = Math.cos(angle) * start;
+          const y1 = Math.sin(angle) * start * 0.56;
+          const x2 = Math.cos(angle) * (start + length);
+          const y2 = Math.sin(angle) * (start + length) * 0.56;
+
+          const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+          gradient.addColorStop(0, `hsla(${streak.hue}, 100%, 56%, 0)`);
+          gradient.addColorStop(0.22, `hsla(${streak.hue}, 100%, 68%, ${0.08 + ease * 0.12})`);
+          gradient.addColorStop(1, `hsla(${streak.hue + 18}, 100%, 82%, ${0.42 + ease * 0.48})`);
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = streak.width + ease * 9;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
+
+        const worldGlow = ctx.createRadialGradient(0, 0, 38, 0, 0, 620);
+        worldGlow.addColorStop(0, "rgba(220, 255, 255, 0.86)");
+        worldGlow.addColorStop(0.16, "rgba(66, 206, 255, 0.34)");
+        worldGlow.addColorStop(0.34, "rgba(31, 103, 255, 0.12)");
+        worldGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = worldGlow;
+        ctx.beginPath();
+        ctx.arc(0, 0, 620, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+        vfxPortalFrame = window.requestAnimationFrame(drawVfxPortal);
+      }
+
+      function showVfxLoader() {
+        document.querySelector(".vfx-fall-overlay")?.remove();
+        document.body.classList.remove("vfx-collapse-active");
         window.clearInterval(vfxLoaderTimer);
+        window.cancelAnimationFrame(vfxPortalFrame);
         vfxLoader?.classList.add("is-active");
         vfxLoader?.setAttribute("aria-hidden", "false");
-        const duration = 1100;
+        if (vfxLoaderPortal) {
+          vfxLoaderPortal.width = VFX_PORTAL_WIDTH;
+          vfxLoaderPortal.height = VFX_PORTAL_HEIGHT;
+        }
+        vfxPortalStartedAt = performance.now();
+        vfxPortalFrame = window.requestAnimationFrame(drawVfxPortal);
         const startedAt = performance.now();
 
         const setProgress = (progress) => {
@@ -909,14 +1198,27 @@
         setProgress(0);
         vfxLoaderTimer = window.setInterval(() => {
           const elapsed = performance.now() - startedAt;
-          setProgress((elapsed / duration) * 100);
+          setProgress((elapsed / VFX_LOADER_DURATION) * 100);
         }, 50);
 
-        window.setTimeout(() => {
+        vfxNavigateTimer = window.setTimeout(() => {
           window.clearInterval(vfxLoaderTimer);
+          window.cancelAnimationFrame(vfxPortalFrame);
           setProgress(100);
           window.location.href = vfx98Link.href;
-        }, duration);
+        }, VFX_LOADER_DURATION);
+      }
+
+      vfx98Link?.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (vfxTransitionStarted) {
+          return;
+        }
+        vfxTransitionStarted = true;
+        window.clearInterval(vfxLoaderTimer);
+        window.clearTimeout(vfxNavigateTimer);
+        createVfxFallOverlay();
+        window.setTimeout(showVfxLoader, VFX_FALL_DURATION);
       });
     </script>
     <script type="module" src="../js/datamosh.js"></script>

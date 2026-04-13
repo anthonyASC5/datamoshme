@@ -16,9 +16,14 @@ const datamoshToggle = document.getElementById("datamosh-toggle");
 const audioToggle = document.getElementById("audio-toggle");
 const optimizationPanel = document.getElementById("optimization-panel");
 const optimizationToggle = document.getElementById("optimization-toggle");
+const videoEditorPanel = document.getElementById("video-editor-panel");
+const videoEditorToggle = document.getElementById("video-editor-toggle");
 const fpsSelect = document.getElementById("fps-select");
 const qualitySelect = document.getElementById("quality-select");
 const renderHudStatus = document.getElementById("render-hud-status");
+const moshPresetButtons = Array.from(document.querySelectorAll("[data-mosh-preset]"));
+const moshBlendModeSelect = document.getElementById("mosh-blend-mode-select");
+const bwGritToggle = document.getElementById("bw-grit-toggle");
 const fileInput = document.getElementById("file-input");
 const videoDropButton = document.getElementById("video-drop-button");
 const stageShell = document.querySelector(".stage-shell");
@@ -31,9 +36,6 @@ const sourceMeta = document.getElementById("source-meta");
 const logOutput = document.getElementById("log-output");
 const frameCounter = document.getElementById("frame-counter");
 const editorControls = Array.from(document.querySelectorAll("[data-editor-control]"));
-const curveCanvas = document.getElementById("curve-canvas");
-const curveOutput = document.getElementById("curve-output");
-const curveCtx = curveCanvas?.getContext("2d");
 
 const stageCtx = stageCanvas.getContext("2d", { alpha: false });
 const renderCanvas = document.createElement("canvas");
@@ -42,6 +44,8 @@ const moshCanvas = document.createElement("canvas");
 const moshCtx = moshCanvas.getContext("2d", { alpha: false });
 const editCanvas = document.createElement("canvas");
 const editCtx = editCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
+const differenceCanvas = document.createElement("canvas");
+const differenceCtx = differenceCanvas.getContext("2d");
 const SPLIT_MODES = Object.freeze({
   off: "off",
   vertical: "vertical",
@@ -51,8 +55,39 @@ const EDITOR_DEFAULTS = Object.freeze({
   brightness: 0,
   contrast: 100,
   highlights: 0,
-  curve: 0,
   sharpness: 0,
+});
+const BLEND_MODES = Object.freeze([
+  "source-over",
+  "difference",
+  "exclusion",
+  "screen",
+  "darken",
+  "multiply",
+]);
+const MOSH_PRESETS = Object.freeze({
+  default: {
+    label: "DEFAULT",
+    keyframeMode: "default",
+  },
+  heavy: {
+    label: "HEAVY MOSH",
+    speed: 8,
+    renderScale: 0.3,
+    fpsCap: 24,
+    keyframeMode: "minimal",
+    maxFramesWithoutReset: 180,
+  },
+  controlled: {
+    label: "CONTROLLED TRAILS",
+    speed: 3,
+    renderScale: 0.5,
+    fpsCap: 30,
+    keyframeMode: "interval",
+    keyframeInterval: 100,
+    blendMode: "difference",
+    blendOpacity: 0.7,
+  },
 });
 
 let encoder = null;
@@ -70,12 +105,23 @@ let recordedChunks = [];
 let recordingStream = null;
 let renderScale = Number(qualitySelect?.value || 0.3);
 let fpsCap = Number(fpsSelect?.value || 30);
+const DEFAULT_MOSH_SETTINGS = Object.freeze({
+  speed,
+  renderScale,
+  fpsCap,
+});
 let lastRenderTime = 0;
 let dropMouthTimer = 0;
 let splitMode = SPLIT_MODES.off;
 let hasMoshFrame = false;
-let isDraggingCurve = false;
-const curvePoint = { x: 0.5, y: 0.5 };
+let activePresetName = "default";
+let keyframeMode = MOSH_PRESETS.default.keyframeMode;
+let framesSinceKeyframe = 0;
+let presetFrameCounter = 0;
+let forcePresetKeyFrame = false;
+let blendMode = "source-over";
+let blendOpacity = 1;
+let isBwGritEnabled = false;
 const editorState = { ...EDITOR_DEFAULTS };
 const frameStats = {
   output: 0,
@@ -271,6 +317,8 @@ function updateCanvasSize() {
   stageCanvas.height = Math.max(360, window.innerHeight);
   moshCanvas.width = stageCanvas.width;
   moshCanvas.height = stageCanvas.height;
+  differenceCanvas.width = stageCanvas.width;
+  differenceCanvas.height = stageCanvas.height;
   moshCtx.imageSmoothingEnabled = false;
   syncRenderCanvasSize();
 }
@@ -306,7 +354,11 @@ function drawFrameToRect(source, x, y, width, height) {
 }
 
 function hasEditorAdjustments() {
-  return Object.entries(EDITOR_DEFAULTS).some(([key, value]) => editorState[key] !== value);
+  return isBwGritEnabled
+    || editorState.brightness !== EDITOR_DEFAULTS.brightness
+    || editorState.contrast !== EDITOR_DEFAULTS.contrast
+    || editorState.highlights !== EDITOR_DEFAULTS.highlights
+    || editorState.sharpness !== EDITOR_DEFAULTS.sharpness;
 }
 
 function applySharpness(data, width, height, amount) {
@@ -347,28 +399,27 @@ function applyEditorAdjustments() {
   const brightness = editorState.brightness * 2.55;
   const contrast = editorState.contrast / 100;
   const highlights = editorState.highlights * 2.55;
-  const curve = editorState.curve / 100;
+  const hasColorAdjustments = editorState.brightness !== 0 || editorState.contrast !== 100 || editorState.highlights !== 0;
 
-  for (let index = 0; index < data.length; index += 4) {
-    for (let channel = 0; channel < 3; channel += 1) {
-      let value = data[index + channel];
-      value = (value - 128) * contrast + 128 + brightness;
+  if (isBwGritEnabled) {
+    for (let index = 0; index < data.length; index += 4) {
+      const luma = (data[index] * 0.299) + (data[index + 1] * 0.587) + (data[index + 2] * 0.114);
+      const noise = (((index * 17) + frameStats.output * 31) % 37) - 18;
+      let value = ((luma - 128) * 1.75) + 128 + noise;
+      value = value > 132 ? Math.min(255, value + 18) : Math.max(0, value - 24);
+      value = clamp(value, 0, 255);
+      data[index] = value;
+      data[index + 1] = value;
+      data[index + 2] = value;
+    }
+  } else if (hasColorAdjustments) {
+    for (let index = 0; index < data.length; index += 4) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        let value = (data[index + channel] - 128) * contrast + 128 + brightness;
+        value += highlights * clamp((value - 128) / 127, 0, 1);
 
-      const highlightMask = clamp((value - 128) / 127, 0, 1);
-      value += highlights * highlightMask;
-
-      if (curve !== 0) {
-        const lift = curve > 0 ? curve * 34 : 0;
-        const crush = curve < 0 ? -curve * 34 : 0;
-        value = ((value - lift) / Math.max(1, 255 - lift - crush)) * 255;
-        const normalized = clamp(value / 255, 0, 1);
-        const sCurve = normalized * normalized * (3 - 2 * normalized);
-        const flatCurve = 0.5 + (normalized - 0.5) * 0.55;
-        const target = curve > 0 ? sCurve : flatCurve;
-        value = (normalized + (target - normalized) * Math.abs(curve)) * 255;
+        data[index + channel] = clamp(value, 0, 255);
       }
-
-      data[index + channel] = clamp(value, 0, 255);
     }
   }
 
@@ -377,6 +428,11 @@ function applyEditorAdjustments() {
 }
 
 function drawEditedFrameToRect(source, x, y, width, height) {
+  if (!hasEditorAdjustments()) {
+    stageCtx.drawImage(source, x, y, width, height);
+    return;
+  }
+
   syncEditCanvasSize(width, height);
   editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
   editCtx.drawImage(source, 0, 0, editCanvas.width, editCanvas.height);
@@ -408,6 +464,26 @@ function drawOutputFrame(editedSource = sourceVideo) {
   drawEditedFrameToRect(editedFrame, 0, 0, stageCanvas.width, stageCanvas.height);
 }
 
+function drawBlendedOutput() {
+  const width = stageCanvas.width;
+  const height = stageCanvas.height;
+  differenceCtx.clearRect(0, 0, width, height);
+  differenceCtx.globalCompositeOperation = "source-over";
+  differenceCtx.globalAlpha = 1;
+  differenceCtx.drawImage(sourceVideo, 0, 0, width, height);
+  differenceCtx.globalCompositeOperation = blendMode;
+  differenceCtx.globalAlpha = blendOpacity;
+  differenceCtx.drawImage(moshCanvas, 0, 0, width, height);
+  differenceCtx.globalCompositeOperation = "source-over";
+  differenceCtx.globalAlpha = 1;
+
+  drawOutputFrame(differenceCanvas);
+}
+
+function isBlendModeActive() {
+  return blendMode !== "source-over";
+}
+
 function updateSplitButtons() {
   splitVerticalButton?.classList.toggle("button--primary", splitMode === SPLIT_MODES.vertical);
   splitHorizontalButton?.classList.toggle("button--primary", splitMode === SPLIT_MODES.horizontal);
@@ -416,10 +492,14 @@ function updateSplitButtons() {
 function setSplitMode(nextMode) {
   splitMode = splitMode === nextMode ? SPLIT_MODES.off : nextMode;
   updateSplitButtons();
-  useKeyFrame = true;
+  requestKeyFrame();
 
   if (sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    drawOutputFrame(hasMoshFrame ? moshCanvas : sourceVideo);
+    if (isBlendModeActive() && hasMoshFrame) {
+      drawBlendedOutput();
+    } else {
+      drawOutputFrame(hasMoshFrame ? moshCanvas : sourceVideo);
+    }
   }
 
   setStatus(splitMode === SPLIT_MODES.off ? "SPLIT OFF" : `${splitMode} SPLIT`);
@@ -434,9 +514,134 @@ function updateOptimizationHud() {
   renderHudStatus.textContent = `${Math.round(renderScale * 100)}% / ${fpsCap} FPS`;
 }
 
+function syncPresetControls() {
+  if (speedSlider) {
+    speedSlider.value = String(speed);
+  }
+  if (speedOutput) {
+    speedOutput.value = String(speed);
+    speedOutput.textContent = String(speed);
+  }
+  if (qualitySelect) {
+    qualitySelect.value = String(renderScale);
+  }
+  if (fpsSelect) {
+    fpsSelect.value = String(fpsCap);
+  }
+  moshPresetButtons.forEach((button) => {
+    const isActive = button.dataset.moshPreset === activePresetName;
+    button.classList.toggle("button--primary", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+  if (moshBlendModeSelect) {
+    moshBlendModeSelect.value = blendMode;
+  }
+}
+
+function updateBwGritToggle() {
+  bwGritToggle?.classList.toggle("is-active", isBwGritEnabled);
+  bwGritToggle?.setAttribute("aria-pressed", String(isBwGritEnabled));
+}
+
+function resetPresetCounters() {
+  framesSinceKeyframe = 0;
+  presetFrameCounter = 0;
+}
+
+function requestKeyFrame(isHardReset = false) {
+  useKeyFrame = true;
+  forcePresetKeyFrame = forcePresetKeyFrame || isHardReset;
+}
+
+function setBlendMode(nextBlendMode) {
+  blendMode = BLEND_MODES.includes(nextBlendMode) ? nextBlendMode : "source-over";
+  syncPresetControls();
+  refreshPausedFrame();
+  appendLog(`BLEND ${blendMode === "source-over" ? "NORMAL" : blendMode}`);
+}
+
+function setBwGritEnabled(isEnabled) {
+  isBwGritEnabled = isEnabled;
+  updateBwGritToggle();
+  requestKeyFrame();
+  refreshPausedFrame();
+  appendLog(isBwGritEnabled ? "B/W GRIT ON" : "B/W GRIT OFF");
+}
+
+function applyPreset(name) {
+  const preset = MOSH_PRESETS[name] || MOSH_PRESETS.default;
+  activePresetName = MOSH_PRESETS[name] ? name : "default";
+  keyframeMode = preset.keyframeMode;
+
+  if (activePresetName === "default") {
+    speed = DEFAULT_MOSH_SETTINGS.speed;
+    renderScale = DEFAULT_MOSH_SETTINGS.renderScale;
+    fpsCap = DEFAULT_MOSH_SETTINGS.fpsCap;
+    blendMode = "source-over";
+    blendOpacity = 1;
+  } else {
+    speed = preset.speed;
+    renderScale = preset.renderScale;
+    fpsCap = preset.fpsCap;
+    blendMode = BLEND_MODES.includes(preset.blendMode) ? preset.blendMode : "source-over";
+    blendOpacity = preset.blendOpacity ?? 1;
+    isDatamoshEnabled = true;
+    updateDatamoshToggle();
+  }
+
+  resetPresetCounters();
+  syncPresetControls();
+  syncRenderCanvasSize();
+  updateOptimizationHud();
+  requestKeyFrame(true);
+  appendLog(`PRESET ${preset.label}`);
+
+  if (activeSourceMode) {
+    setupWebCodecs().catch((error) => {
+      console.error(error);
+      setStatus("PRESET ERROR");
+      appendLog(`ERROR: ${error.message}`);
+    });
+  }
+}
+
+function shouldEncodeKeyFrame() {
+  if (keyframeMode === "minimal") {
+    const preset = MOSH_PRESETS.heavy;
+    if (forcePresetKeyFrame || framesSinceKeyframe > preset.maxFramesWithoutReset) {
+      framesSinceKeyframe = 0;
+      forcePresetKeyFrame = false;
+      return true;
+    }
+    framesSinceKeyframe += 1;
+    forcePresetKeyFrame = false;
+    return false;
+  }
+
+  if (keyframeMode === "interval") {
+    const preset = MOSH_PRESETS.controlled;
+    if (useKeyFrame || forcePresetKeyFrame) {
+      presetFrameCounter = 1;
+      forcePresetKeyFrame = false;
+      return true;
+    }
+    const shouldReset = presetFrameCounter % preset.keyframeInterval === 0;
+    presetFrameCounter += 1;
+    forcePresetKeyFrame = false;
+    return shouldReset;
+  }
+
+  forcePresetKeyFrame = false;
+  return useKeyFrame;
+}
+
 function refreshPausedFrame() {
   if (sourceVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    drawOutputFrame(hasMoshFrame ? moshCanvas : sourceVideo);
+    if (isBlendModeActive() && hasMoshFrame) {
+      drawBlendedOutput();
+    } else {
+      drawOutputFrame(hasMoshFrame ? moshCanvas : sourceVideo);
+    }
   }
 }
 
@@ -456,129 +661,9 @@ function bindEditorControls() {
     syncEditorControl(control);
     control.addEventListener("input", () => {
       syncEditorControl(control);
-      useKeyFrame = true;
+      requestKeyFrame();
       refreshPausedFrame();
     });
-  });
-}
-
-function drawCurveGraph() {
-  if (!curveCanvas || !curveCtx) {
-    return;
-  }
-
-  const width = curveCanvas.width;
-  const height = curveCanvas.height;
-  curveCtx.clearRect(0, 0, width, height);
-  curveCtx.fillStyle = "#000000";
-  curveCtx.fillRect(0, 0, width, height);
-  curveCtx.lineWidth = 1;
-  curveCtx.strokeStyle = "rgba(128, 128, 128, 0.55)";
-
-  for (let step = 1; step < 4; step += 1) {
-    const x = (width / 4) * step;
-    const y = (height / 4) * step;
-    curveCtx.beginPath();
-    curveCtx.moveTo(x, 0);
-    curveCtx.lineTo(x, height);
-    curveCtx.moveTo(0, y);
-    curveCtx.lineTo(width, y);
-    curveCtx.stroke();
-  }
-
-  curveCtx.strokeStyle = "rgba(120, 120, 120, 0.7)";
-  curveCtx.beginPath();
-  curveCtx.moveTo(0, height);
-  curveCtx.lineTo(width, 0);
-  curveCtx.stroke();
-
-  const pointX = curvePoint.x * width;
-  const pointY = curvePoint.y * height;
-  curveCtx.lineWidth = 2;
-  curveCtx.strokeStyle = "#ff1d00";
-  curveCtx.shadowColor = "#ff3b00";
-  curveCtx.shadowBlur = 8;
-  curveCtx.beginPath();
-  curveCtx.moveTo(0, height);
-  curveCtx.lineTo(pointX, pointY);
-  curveCtx.lineTo(width, 0);
-  curveCtx.stroke();
-  curveCtx.shadowBlur = 0;
-
-  curveCtx.fillStyle = "#ff3b00";
-  curveCtx.strokeStyle = "#ffffff";
-  curveCtx.lineWidth = 1;
-  curveCtx.beginPath();
-  curveCtx.rect(pointX - 3, pointY - 3, 6, 6);
-  curveCtx.fill();
-  curveCtx.stroke();
-}
-
-function syncCurveOutput() {
-  if (curveOutput) {
-    curveOutput.value = String(editorState.curve);
-    curveOutput.textContent = String(editorState.curve);
-  }
-  curveCanvas?.setAttribute("aria-valuenow", String(editorState.curve));
-}
-
-function setCurveValue(value) {
-  editorState.curve = Math.round(clamp(value, -100, 100));
-  curvePoint.x = 0.5;
-  curvePoint.y = clamp(0.5 - (editorState.curve / 200), 0.05, 0.95);
-  syncCurveOutput();
-  drawCurveGraph();
-  useKeyFrame = true;
-  refreshPausedFrame();
-}
-
-function setCurveFromPointer(event) {
-  if (!curveCanvas) {
-    return;
-  }
-
-  const bounds = curveCanvas.getBoundingClientRect();
-  curvePoint.x = clamp((event.clientX - bounds.left) / bounds.width, 0.05, 0.95);
-  curvePoint.y = clamp((event.clientY - bounds.top) / bounds.height, 0.05, 0.95);
-  const diagonalY = 1 - curvePoint.x;
-  editorState.curve = Math.round(clamp((diagonalY - curvePoint.y) * 200, -100, 100));
-  syncCurveOutput();
-  drawCurveGraph();
-  useKeyFrame = true;
-  refreshPausedFrame();
-}
-
-function bindCurveEditor() {
-  syncCurveOutput();
-  drawCurveGraph();
-
-  curveCanvas?.addEventListener("pointerdown", (event) => {
-    isDraggingCurve = true;
-    curveCanvas.setPointerCapture?.(event.pointerId);
-    setCurveFromPointer(event);
-  });
-
-  curveCanvas?.addEventListener("pointermove", (event) => {
-    if (isDraggingCurve) {
-      setCurveFromPointer(event);
-    }
-  });
-
-  curveCanvas?.addEventListener("pointerup", () => {
-    isDraggingCurve = false;
-  });
-
-  curveCanvas?.addEventListener("pointercancel", () => {
-    isDraggingCurve = false;
-  });
-
-  curveCanvas?.addEventListener("keydown", (event) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-      return;
-    }
-    event.preventDefault();
-    const direction = event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : -1;
-    setCurveValue(editorState.curve + direction * 5);
   });
 }
 
@@ -587,7 +672,7 @@ function applyOptimizationSettings() {
   fpsCap = Number(fpsSelect?.value || fpsCap);
   syncRenderCanvasSize();
   updateOptimizationHud();
-  useKeyFrame = true;
+  requestKeyFrame();
   appendLog(`RENDER ${Math.round(renderScale * 100)}% / ${fpsCap} FPS`);
 
   if (activeSourceMode) {
@@ -728,7 +813,11 @@ function handleDecodedFrame(frame) {
   moshCtx.drawImage(frame, 0, 0, moshCanvas.width, moshCanvas.height);
   hasMoshFrame = true;
   frameStats.decoded += 1;
-  drawOutputFrame(moshCanvas);
+  if (isBlendModeActive()) {
+    drawBlendedOutput();
+  } else {
+    drawOutputFrame(moshCanvas);
+  }
   frame.close();
 }
 
@@ -760,7 +849,7 @@ function drawLoop(timestamp = 0) {
         const frame = new VideoFrame(renderCanvas, {
           timestamp: getFrameTimestampUs(timestamp),
         });
-        encoder.encode(frame, { keyFrame: useKeyFrame });
+        encoder.encode(frame, { keyFrame: shouldEncodeKeyFrame() });
         frame.close();
       } else {
         drawOutputFrame(sourceVideo);
@@ -877,6 +966,7 @@ async function startDatamoshVideo() {
   stopSource();
   await startWebcam();
   await setupWebCodecs();
+  requestKeyFrame(true);
   setStatus("DATAMOSH ACTIVE");
   drawLoop();
 }
@@ -889,6 +979,7 @@ async function startDatamoshUpload(file) {
   stopSource();
   const { autoplayBlocked } = await startUploadedVideo(file);
   await setupWebCodecs();
+  requestKeyFrame(true);
   setStatus(autoplayBlocked ? "PLAY REQUIRED" : "DATAMOSH ACTIVE");
   drawLoop();
 }
@@ -908,7 +999,7 @@ async function handleVideoEnded() {
   }
 
   sourceVideo.currentTime = 0;
-  useKeyFrame = true;
+  requestKeyFrame(true);
   try {
     await sourceVideo.play();
     setStatus("VIDEO LOOP");
@@ -936,7 +1027,7 @@ function stopActiveSource() {
   if (activeSourceMode === "file") {
     sourceVideo.currentTime = 0;
   }
-  useKeyFrame = true;
+  requestKeyFrame();
   setStatus(`${sourceLabel()} STOP`);
 }
 
@@ -948,7 +1039,7 @@ async function restartActiveSource() {
   if (activeSourceMode === "file") {
     sourceVideo.currentTime = 0;
   }
-  useKeyFrame = true;
+  requestKeyFrame(true);
   await sourceVideo.play();
   setStatus(`${sourceLabel()} RESTART`);
 }
@@ -1029,7 +1120,7 @@ restartButton.addEventListener("click", () => {
 });
 
 resetButton.addEventListener("click", () => {
-  useKeyFrame = true;
+  requestKeyFrame(true);
   setStatus("KEYFRAME RESET");
   appendLog("KEYFRAME RESET");
 });
@@ -1044,7 +1135,7 @@ splitHorizontalButton?.addEventListener("click", () => {
 
 datamoshToggle.addEventListener("click", () => {
   isDatamoshEnabled = !isDatamoshEnabled;
-  useKeyFrame = true;
+  requestKeyFrame();
   updateDatamoshToggle();
   setStatus(isDatamoshEnabled ? "DATAMOSH ACTIVE" : "CLEAN ACTIVE");
 });
@@ -1056,9 +1147,30 @@ optimizationToggle.addEventListener("click", () => {
   optimizationToggle.setAttribute("aria-label", isCollapsed ? "Expand optimize panel" : "Collapse optimize panel");
 });
 
+videoEditorToggle.addEventListener("click", () => {
+  const isCollapsed = videoEditorPanel.classList.toggle("collapsed");
+  videoEditorToggle.textContent = isCollapsed ? "+" : "-";
+  videoEditorToggle.setAttribute("aria-expanded", String(!isCollapsed));
+  videoEditorToggle.setAttribute("aria-label", isCollapsed ? "Expand video editor panel" : "Collapse video editor panel");
+});
+
 fpsSelect?.addEventListener("change", applyOptimizationSettings);
 
 qualitySelect?.addEventListener("change", applyOptimizationSettings);
+
+moshPresetButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    applyPreset(button.dataset.moshPreset);
+  });
+});
+
+moshBlendModeSelect?.addEventListener("change", () => {
+  setBlendMode(moshBlendModeSelect.value);
+});
+
+bwGritToggle?.addEventListener("click", () => {
+  setBwGritEnabled(!isBwGritEnabled);
+});
 
 recordButton.addEventListener("click", () => {
   if (recorder && recorder.state !== "inactive") {
@@ -1072,6 +1184,7 @@ recordButton.addEventListener("click", () => {
 speedSlider.addEventListener("input", () => {
   speed = Number(speedSlider.value);
   speedOutput.value = String(speed);
+  speedOutput.textContent = String(speed);
 });
 
 sourceVideo.addEventListener("ended", () => {
@@ -1088,7 +1201,7 @@ window.addEventListener("resize", async () => {
     return;
   }
   await setupWebCodecs();
-  useKeyFrame = true;
+  requestKeyFrame();
 });
 
 window.addEventListener("beforeunload", async () => {
@@ -1100,7 +1213,7 @@ window.addEventListener("beforeunload", async () => {
 
 updateCanvasSize();
 clearStage();
-speedOutput.value = String(speed);
+syncPresetControls();
 setTimeline("IDLE");
 setStatus("IDLE");
 appendLog("DATAMOSH READY");
@@ -1109,6 +1222,6 @@ setSourceButtonState("");
 updateSplitButtons();
 updateDatamoshToggle();
 updateOptimizationHud();
+updateBwGritToggle();
 bindEditorControls();
-bindCurveEditor();
 refreshFrameCounter();
